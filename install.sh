@@ -56,23 +56,16 @@ chmod +x "$DESKTOP"
 command -v update-desktop-database >/dev/null && update-desktop-database "$DATA/applications" || true
 
 echo "==> Adding to Steam"
-if command -v steamos-add-to-steam >/dev/null 2>&1; then
-  steamos-add-to-steam "$DESKTOP" && ADDED=1 || ADDED=0
-elif pgrep -x steam >/dev/null 2>&1 && command -v xdg-open >/dev/null; then
-  ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1], safe=""))' "$DESKTOP")"
-  touch /tmp/addnonsteamgamefile
-  xdg-open "steam://addnonsteamgame/$ENC" >/dev/null 2>&1 && ADDED=1 || ADDED=0
-else
-  ADDED=0
+STEAM_OK=0
+if PYTHONPATH="$APP" "$DATA/mewdeck/venv/bin/python" -m mewdeck.steam_shortcut install --exe "$APP/run.sh" --icon "$ICON"; then
+  STEAM_OK=1
 fi
-if [ "$ADDED" = 1 ]; then
-  echo "    Sent to Steam. If it does not appear in your library, add it manually (below)."
-fi
+
 cat <<MSG
 
 Done.
   Launch:          $APP/run.sh            (or 'MewDeck' in the app menu)
-  Add to Steam:    Steam (Desktop Mode) > Games > Add a Non-Steam Game > tick 'MewDeck'
+  Steam:           $( [ "$STEAM_OK" = 1 ] && echo "added - find MewDeck under Non-Steam in Game Mode" || echo "not added - Steam > Games > Add a Non-Steam Game > MewDeck" )
   Backups:         $DATA/mewdeck/backups
   Log:             $DATA/mewdeck/mewdeck.log
 MSG

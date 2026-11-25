@@ -35,17 +35,25 @@ cd ~/mewdeck
 ./install.sh
 ```
 
-The installer:
+That's it. The installer:
 
 - builds a private Python environment with `pygame-ce` (needs internet the first time),
 - adds a **MewDeck** entry with an icon to the app menu,
-- tries to add MewDeck to Steam as a non-Steam game.
+- **adds MewDeck to Steam automatically**, for every Steam account on the device, along with library artwork
+  (capsule, banner, hero, logo, icon). Steam rewrites its shortcut list when it exits, so the installer
+  **closes Steam, writes the shortcut, and restarts Steam**. Running it again updates the entry instead of adding a duplicate.
 
-**3. If MewDeck isn't in your Steam library yet:** Steam (Desktop Mode) → **Games → Add a Non-Steam Game
-to My Library…** → tick **MewDeck** → *Add Selected Programs*.
-
-**4.** Switch back to **Game Mode**. MewDeck is in your library under *Non-Steam*. Launch it like a game.
+**3.** Switch back to **Game Mode**. MewDeck is in your library under *Non-Steam*. Launch it like a game.
 The default "Gamepad" controller layout is all it needs.
+
+> If the automatic step ever fails, the installer says so. You can then add it by hand: Steam (Desktop Mode) →
+> **Games → Add a Non-Steam Game to My Library…** → tick **MewDeck**.
+
+### Uninstall
+
+```bash
+cd ~/mewdeck && ./uninstall.sh    # removes the Steam shortcut + artwork, app menu entry, app; keeps backups
+```
 
 ### Update later
 
