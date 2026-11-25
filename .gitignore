@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.sav
+*.sav-*
+*.mewdeck-tmp
+.venv/
+venv/
+.DS_Store
