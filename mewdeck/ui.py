@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import time
 import traceback
 from dataclasses import dataclass
@@ -19,6 +20,9 @@ from typing import Any, Callable
 
 import pygame
 
+from . import catblob as cb
+from . import editors as ed
+from . import gamedata as gd
 from . import savefile as sf
 
 W, H = 1920, 1080  # native 1080p (16:9, ROG Ally native panel)
@@ -455,7 +459,7 @@ class ListView:
         n = len(self.rows)
         self.sel = (self.sel + d) % n if abs(d) == 1 else max(0, min(n - 1, self.sel + d))
 
-    def draw(self, surf, area: pygame.Rect, render: Callable[..., None] | None = None) -> None:
+    def draw(self, surf, area: pygame.Rect, render: Callable[..., None] | None = None, show_focus: bool = True) -> None:
         render = render or default_row
         step = self.row_h + self.gap
         visible = max(1, (area.h + self.gap) // step)
@@ -476,7 +480,7 @@ class ListView:
                 continue
             rrect(surf, r, CARD, 18)
         hr = pygame.Rect(area.x, area.y + hl_y - off, area.w, self.row_h)
-        if self.rows:
+        if self.rows and show_focus:
             rrect(surf, hr, CARD_HI, 18)
         for i in range(first, min(len(self.rows), first + visible + 3)):
             r = pygame.Rect(area.x, area.y + i * step - off, area.w, self.row_h)
@@ -484,8 +488,8 @@ class ListView:
                 continue
             if area.y - 6 <= r.y and r.bottom <= area.bottom + 6:
                 self.rects.append((r, i))
-            render(surf, r, self.rows[i], i == self.sel)
-        if self.rows:
+            render(surf, r, self.rows[i], i == self.sel and show_focus)
+        if self.rows and show_focus:
             focus_ring(surf, hr, 18)
         surf.set_clip(clip)
         if len(self.rows) > visible:
@@ -642,7 +646,7 @@ class Hub(Screen):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.tabs: list[Tab] = [HomeTab(app), CatsTab(app), ItemsTab(app), BackupsTab(app)]
+        self.tabs: list[Tab] = [HomeTab(app), CatsTab(app), ItemsTab(app), ed.FurnitureTab(sys.modules[__name__], app), BackupsTab(app)]
         self.i = 0
         self.ul = RectAnim()
         self.tab_rects: list[pygame.Rect] = []
@@ -700,8 +704,10 @@ class Hub(Screen):
             badge = ""
             if isinstance(t, CatsTab):
                 badge = str(self.app.snap.parsed["total_cats"])
-            if isinstance(t, ItemsTab) and self.app.pending.add_items:
-                badge = f"+{len(self.app.pending.add_items)}"
+            elif isinstance(t, ItemsTab) and self.app.pending.inv_total():
+                badge = f"{self.app.pending.inv_total()}"
+            elif isinstance(t, ed.FurnitureTab):
+                badge = str(self.app.snap.parsed["total_furniture"])
             sel = i == self.i
             img = F(32, "black" if sel else "bold").render(label, True, TEXT if sel else DIM)
             r = pygame.Rect(x, y + 10, img.get_width() + 48 + (46 if badge else 0), TABS_H - 20)
@@ -729,50 +735,106 @@ class Hub(Screen):
 
 class HomeTab(Tab):
     name = "Home"
-    ITEMS = ["reset", "wipe", "restart", "guard", "gold", "food", "write"]
+    ACTIONS = ["reset", "wipe", "restart", "guard", "heal_all"]
+    # (prop_key, label, tag, step, max_val, quick_x_val)
+    RESOURCES = [
+        ("house_gold", "Home Gold", "HOME", 10, 9_999_999, 99_999),
+        ("house_food", "Home Food", "HOME", 10, 9_999_999, 99_999),
+        ("adventure_coins", "Adventure Coins", "ADV", 10, 9_999_999, 99_999),
+        ("adventure_food", "Adventure Food", "ADV", 10, 9_999_999, 99_999),
+        ("blank_collars", "Blank Collars", "HOME", 1, 999, 99),
+        ("current_day", "Current Day", "META", 1, 99_999, None),
+        ("house_storage_upgrades", "Storage Upgrades", "HOME", 1, 99, 10),
+        ("adventure_furniture_boxes", "Furniture Boxes", "ADV", 1, 99, 20),
+        ("min_strays_tomorrow", "Min Strays Tomorrow", "HOME", 1, 20, 10),
+        ("save_file_percent", "Completion %", "META", 1, 100, 100),
+    ]
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.focus = 0
+        self.col = 0  # 0 = left actions, 1 = right resources/save
+        self.act_idx = 0
+        self.res_list = ListView(row_h=72, gap=8)
         self.ring = RectAnim()
         self.rects: dict[str, pygame.Rect] = {}
         self.arrow_rects: dict[tuple[str, int], pygame.Rect] = {}
+        self._res_scroll_area = pygame.Rect(0, 0, 1, 1)
+
+    def on_enter(self) -> None:
+        rows = [Row(lbl, data=spec) for spec in self.RESOURCES for lbl in (spec[1],)]
+        rows.append(Row("Save pending changes", data=("write",)))
+        self.res_list.set_rows(rows)
 
     def _val(self, key: str) -> int:
-        return self.app.pending.props.get(key, self.app.snap.parsed["basic"][key])
+        basic = self.app.snap.parsed["basic"]
+        return self.app.pending.props.get(key, basic.get(key, 0))
 
-    def _adjust(self, item: str, delta: int) -> None:
-        key = {"gold": "house_gold", "food": "house_food"}[item]
-        base = self.app.snap.parsed["basic"][key]
-        new = max(0, min(9_999_999, self._val(key) + delta))
+    def _adjust(self, key: str, delta: int, max_v: int) -> None:
+        base = self.app.snap.parsed["basic"].get(key, 0)
+        lo = 1 if key == "current_day" else 0
+        new = max(lo, min(max_v, self._val(key) + delta))
         if new == base:
             self.app.pending.props.pop(key, None)
         else:
             self.app.pending.props[key] = new
 
     def handle(self, btn: str) -> bool:
-        item = self.ITEMS[self.focus]
         if btn in (UP, DOWN):
-            self.focus = (self.focus + (-1 if btn == UP else 1)) % len(self.ITEMS)
+            d = -1 if btn == UP else 1
+            if self.col == 0:
+                nxt = self.act_idx + d
+                if 0 <= nxt < len(self.ACTIONS):
+                    self.act_idx = nxt
+                elif nxt >= len(self.ACTIONS):
+                    self.col = 1
+                    self.res_list.sel = 0
+                else:
+                    self.col = 1
+                    self.res_list.sel = len(self.res_list.rows) - 1
+            else:
+                nxt = self.res_list.sel + d
+                if 0 <= nxt < len(self.res_list.rows):
+                    self.res_list.sel = nxt
+                elif nxt < 0:
+                    self.col = 0
+                    self.act_idx = len(self.ACTIONS) - 1
+                else:
+                    self.col = 0
+                    self.act_idx = 0
             return True
-        if item in ("gold", "food") and btn in (LEFT, RIGHT):
-            self._adjust(item, (10 if btn == RIGHT else -10) * self.app.input.mult(btn))
+        if self.col == 0 and btn == RIGHT:
+            self.col = 1
             return True
-        if item in ("gold", "food") and btn == X:
-            self._adjust(item, 99_999 - self._val("house_gold" if item == "gold" else "house_food"))
-            return True
+        if self.col == 1:
+            row = self.res_list.current
+            if row and row.data[0] != "write":
+                key, _, _, step, max_v, qx = row.data
+                if btn in (LEFT, RIGHT):
+                    self._adjust(key, (step if btn == RIGHT else -step) * self.app.input.mult(btn), max_v)
+                    return True
+                if btn == X and qx is not None:
+                    self._adjust(key, qx - self._val(key), max_v)
+                    return True
+            elif btn == LEFT:
+                self.col = 0
+                return True
         if btn == A:
-            self.activate(item)
+            if self.col == 0:
+                self.activate(self.ACTIONS[self.act_idx])
+            elif self.res_list.current and self.res_list.current.data[0] == "write":
+                self.app.write()
             return True
         return False
 
     def activate(self, item: str) -> None:
         app = self.app
         if item == "reset":
-            app.confirm("Reset Steven's penalty?", "Sets savescumlocation to 0 and keeps 1 strike. A backup is made first.",
+            app.confirm("Reset Steven's penalty?",
+                        "Sets savescumlocation to 0, keeps 1 strike, and strips Déjà Vu from adventure cats. Backup made first.",
                         lambda: app.write(steven="cap"), yes="Reset")
         elif item == "wipe":
-            app.confirm("Reset and wipe all strikes?", "Also deletes Steven's whole strike history. A backup is made first.",
+            app.confirm("Reset and wipe all strikes?",
+                        "Deletes Steven's whole strike history and strips Déjà Vu from adventure cats. Backup made first.",
                         lambda: app.write(steven="clear"), yes="Wipe", danger=True)
         elif item == "restart":
             app.confirm("Close, reset & relaunch?", "Closes Mewgenics, resets Steven, then starts the game through Steam.",
@@ -786,146 +848,162 @@ class HomeTab(Tab):
             else:
                 app.confirm("Turn off auto-block?", "Removes MewDeck's guard; Steven works normally again.",
                             lambda: app.write(guard=False), yes="Turn off")
-        elif item == "write":
-            app.write()
+        elif item == "heal_all":
+            inj = sum(1 for c in app.snap.parsed["cats"] if c["injured"] or c["wounded"])
+            body = (f"Heals HP, injuries, stat penalties, and visual scars on all {app.snap.parsed['total_cats']} active cats "
+                    f"({inj} currently injured/wounded). A backup is made first.")
+            app.confirm("Heal all active cats?", body, lambda: app.write(heal_all=True), yes="Heal all")
 
     def click(self, pos) -> None:
-        for (item, d), r in self.arrow_rects.items():
+        for (key, d), r in self.arrow_rects.items():
             if r.collidepoint(pos):
-                self.focus = self.ITEMS.index(item)
-                self._adjust(item, d)
+                for spec in self.RESOURCES:
+                    if spec[0] == key:
+                        self.col = 1
+                        self._adjust(key, d, spec[4])
+                        return
+        for idx, key in enumerate(self.ACTIONS):
+            r = self.rects.get(key)
+            if r and r.collidepoint(pos):
+                if self.col == 0 and self.act_idx == idx:
+                    self.activate(key)
+                self.col, self.act_idx = 0, idx
                 return
-        for item, r in self.rects.items():
-            if r.collidepoint(pos):
-                if self.ITEMS[self.focus] == item:
-                    self.activate(item)
-                self.focus = self.ITEMS.index(item)
+        i = self.res_list.hit(pos)
+        if i is not None:
+            self.col = 1
+            if i == self.res_list.sel and self.res_list.rows[i].data[0] == "write":
+                self.app.write()
+            self.res_list.sel = i
+
+    def _render_res_row(self, surf, r, row: Row, selected: bool) -> None:
+        focused = self.col == 1 and selected
+        if row.data[0] == "write":
+            pend = self.app.pending
+            has = not pend.empty()
+            rrect(surf, r, mix(ACCENT, CARD, .1) if has else CARD_HI, 16)
+            fg = DARK if has else DIM
+            lbl = f"Save {pend.count()} pending change{'s' if pend.count() != 1 else ''}" if has else "No pending changes"
+            text(surf, lbl, (r.x + 24, r.centery), 28, fg, "black", anchor="midleft")
+            if has:
+                tri(surf, fg, (r.right - 28, r.centery), 10, "right")
+            return
+        key, label, tag, step, _, _ = row.data
+        val = self._val(key)
+        base = self.app.snap.parsed["basic"].get(key, 0)
+        changed = val != base
+        tcol = INFO if tag == "ADV" else ACCENT if tag == "HOME" else FAINT
+        pill(surf, tag, r.x + 18, r.centery, mix(tcol, CARD, .72), tcol, size=15, anchor="midleft")
+        text(surf, label, (r.x + 96, r.centery), 25, TEXT, "bold", anchor="midleft", maxw=r.w - 340)
+        text(surf, f"{val:,}", (r.right - 134, r.centery), 30, ACCENT if changed else TEXT, "black", anchor="midright")
+        for d, direction, cx in ((-step, "left", r.right - 92), (step, "right", r.right - 38)):
+            ar = pygame.Rect(0, 0, 44, 44)
+            ar.center = (cx, r.centery)
+            self.arrow_rects[(key, d)] = ar
+            rrect(surf, ar, CARD_HI if focused else mix(CARD, CARD_HI, .45), 12)
+            tri(surf, TEXT if focused else DIM, ar.center, 9, direction)
 
     def draw(self, surf, area) -> None:
         snap = self.app.snap
         st = snap.steven
         basic = snap.parsed["basic"]
-        pend = self.app.pending
         self.rects, self.arrow_rects = {}, {}
+        inj_count = sum(1 for c in snap.parsed["cats"] if c["injured"] or c["wounded"])
 
-        # ---- Steven hero card
-        hero = pygame.Rect(area.x, area.y, 1026, area.h)
+        # ---- Left column: Steven + Heal All Cats
+        hero = pygame.Rect(area.x, area.y, 980, area.h)
         rrect(surf, hero, CARD, 26)
-        band = pygame.Rect(hero.x, hero.y, hero.w, 202)
+        band = pygame.Rect(hero.x, hero.y, hero.w, 184)
         tint = pygame.Surface(band.size, pygame.SRCALPHA)
-        tint.fill((*(BAD if st.active else GOOD), 28))
+        tint.fill((*(BAD if (st.active or st.dejavu_cats) else GOOD), 28))
         surf.blit(tint, band.topleft)
-        text(surf, "SAVE-SCUM WATCH", (hero.x + 44, hero.y + 32), 22, FAINT, "black")
-        icon_status(surf, hero.x + 94, hero.y + 124, 46, not st.active)
-        text(surf, f"Penalty armed ({st.where})" if st.active else "All clear", (hero.x + 168, hero.y + 70), 50,
-             BAD if st.active else GOOD, "black", maxw=hero.w - 400)
-        sub = [f"{st.strikes} strike{'s' if st.strikes != 1 else ''} on record"]
+        text(surf, "SAVE-SCUM WATCH & QUICK FIXES", (hero.x + 40, hero.y + 26), 20, FAINT, "black")
+        icon_status(surf, hero.x + 88, hero.y + 114, 42, not (st.active or st.dejavu_cats))
+        headline = f"Penalty armed ({st.where})" if st.active else (f"{st.dejavu_cats} cats have Déjà Vu" if st.dejavu_cats else "All clear")
+        text(surf, headline, (hero.x + 156, hero.y + 62), 46,
+             BAD if (st.active or st.dejavu_cats) else GOOD, "black", maxw=hero.w - 380)
+        sub = [f"{st.strikes} strike{'s' if st.strikes != 1 else ''}"]
+        if st.dejavu_cats:
+            sub.append(f"{st.dejavu_cats} Déjà Vu")
         if st.guarded:
             sub.append("auto-block on")
-        if st.met:
-            sub.append("Steven met")
         if st.on_adventure:
-            sub.append("on an adventure")
-        text(surf, "  ·  ".join(sub), (hero.x + 170, hero.y + 140), 27, DIM)
-        pips(surf, hero.right - 44 - max(5, st.strikes) * 31 + 7, hero.y + 46, st.strikes, max(5, st.strikes), BAD,
-             24, 24, 7, mix(LINE, CARD, .4))
+            sub.append("on adventure")
+        text(surf, "  ·  ".join(sub), (hero.x + 158, hero.y + 126), 24, DIM)
+        pips(surf, hero.right - 40 - max(5, st.strikes) * 29 + 6, hero.y + 42, st.strikes, max(5, st.strikes), BAD,
+             23, 23, 6, mix(LINE, CARD, .4))
 
-        btns = [("reset", "Reset penalty", "savescumlocation = 0, keep 1 strike", True),
-                ("wipe", "Reset + wipe strikes", "Delete the whole strike history", False),
-                ("restart", "Close game, reset & relaunch", "One button: kill, reset, start via Steam", False),
-                ("guard", "Auto-block Steven", "Game can't arm the penalty anymore (save trigger)", False)]
-        by = hero.y + 230
+        btns = [
+            ("reset", "Reset penalty & Déjà Vu", "savescumlocation = 0, keep 1 strike, strip Déjà Vu", True),
+            ("wipe", "Reset + wipe all strikes", "Delete strike history & strip Déjà Vu", False),
+            ("restart", "Close game, reset & relaunch", "One button: kill, reset, start via Steam", False),
+            ("guard", "Auto-block Steven", "SQLite trigger prevents penalty from arming", False),
+            ("heal_all", "Heal all active cats", "Full HP + cure injuries, stat penalties & scars", False),
+        ]
+        by = hero.y + 204
         for key, label, desc, primary in btns:
-            r = pygame.Rect(hero.x + 38, by, hero.w - 76, 102)
+            r = pygame.Rect(hero.x + 34, by, hero.w - 68, 96)
             self.rects[key] = r
-            col = (BAD if st.active else mix(GOOD, CARD, .35)) if primary else CARD_HI
-            rrect(surf, r, col, 22)
-            fg = DARK if primary and st.active else TEXT
-            text(surf, label, (r.x + 32, r.y + 15), 36, fg, "black")
-            text(surf, desc, (r.x + 32, r.bottom - 15), 24, mix(fg, col, .3), anchor="bottomleft")
-            if key == "guard":
-                pill(surf, "ON" if st.guarded else "OFF", r.right - 36, r.centery, GOOD if st.guarded else LINE,
-                     DARK if st.guarded else TEXT, 24, anchor="midright")
+            if key == "heal_all":
+                col = mix(GOOD, CARD, .55) if inj_count else CARD_HI
+            elif primary:
+                col = BAD if (st.active or st.dejavu_cats) else mix(GOOD, CARD, .35)
             else:
-                tri(surf, fg, (r.right - 40, r.centery), 12, "right")
-            by += 118
+                col = CARD_HI
+            rrect(surf, r, col, 20)
+            fg = DARK if primary and (st.active or st.dejavu_cats) else TEXT
+            text(surf, label, (r.x + 28, r.y + 14), 32, fg, "black")
+            text(surf, desc, (r.x + 28, r.bottom - 14), 22, mix(fg, col, .28), anchor="bottomleft")
+            if key == "guard":
+                pill(surf, "ON" if st.guarded else "OFF", r.right - 32, r.centery, GOOD if st.guarded else LINE,
+                     DARK if st.guarded else TEXT, 22, anchor="midright")
+            elif key == "heal_all":
+                pill(surf, f"{inj_count} injured" if inj_count else "All healthy", r.right - 32, r.centery,
+                     BAD if inj_count else GOOD, DARK, 20, anchor="midright")
+            else:
+                tri(surf, fg, (r.right - 36, r.centery), 11, "right")
+            by += 108
 
-        # ---- right column
+        # ---- Right column: Campaign summary + Home & Adventure Resources
         col_x = hero.right + 32
         col_w = area.right - col_x
-        y = area.y
-        for item, key, label in (("gold", "house_gold", "Gold"), ("food", "house_food", "Food")):
-            r = pygame.Rect(col_x, y, col_w, 160)
-            self.rects[item] = r
-            rrect(surf, r, CARD, 24)
-            (icon_coin if item == "gold" else icon_food)(surf, r.x + 62, r.y + 62, 30)
-            text(surf, label.upper(), (r.x + 110, r.y + 30), 22, FAINT, "black")
-            val = self._val(key)
-            changed = val != basic[key]
-            text(surf, f"{val:,}", (r.x + 110, r.y + 52), 54, ACCENT if changed else TEXT, "black")
-            if changed:
-                text(surf, f"was {basic[key]:,}", (r.x + 110, r.bottom - 16), 23, DIM, anchor="bottomleft")
-            focused = self.ITEMS[self.focus] == item
-            for d, direction, cx in ((-10, "left", r.right - 124), (10, "right", r.right - 54)):
-                ar = pygame.Rect(0, 0, 54, 54)
-                ar.center = (cx, r.centery)
-                self.arrow_rects[(item, d)] = ar
-                rrect(surf, ar, CARD_HI if focused else mix(CARD, CARD_HI, .4), 16)
-                tri(surf, TEXT if focused else DIM, ar.center, 11, direction)
-            y = r.bottom + 18
-
-        info = pygame.Rect(col_x, y, col_w, 148)
-        rrect(surf, info, mix(CARD, BG_BOT, .4), 24)
-        for i, (lab, val) in enumerate((("DAY", basic["current_day"]), ("CATS", snap.parsed["total_cats"]),
+        info = pygame.Rect(col_x, area.y, col_w, 114)
+        rrect(surf, info, mix(CARD, BG_BOT, .35), 22)
+        house_n = sum(1 for c in snap.parsed["cats"] if c["room"] != "(ADVENTURE)")
+        adv_n = sum(1 for c in snap.parsed["cats"] if c["room"] == "(ADVENTURE)")
+        for i, (lab, val) in enumerate((("DAY", basic["current_day"]), ("HOUSE", house_n), ("ADV PARTY", adv_n),
                                         ("DONE", f"{basic['save_percent']}%"))):
-            cx = info.x + col_w * (i * 2 + 1) // 6
-            text(surf, str(val), (cx, info.y + 35), 40, TEXT, "black", anchor="midtop")
-            text(surf, lab, (cx, info.y + 92), 20, FAINT, "black", anchor="midtop")
-        y = info.bottom + 18
+            cx = info.x + col_w * (i * 2 + 1) // 8
+            text(surf, str(val), (cx, info.y + 22), 34, INFO if lab == "ADV PARTY" and adv_n else TEXT, "black", anchor="midtop")
+            text(surf, lab, (cx, info.y + 72), 17, FAINT, "black", anchor="midtop")
 
-        wr = pygame.Rect(col_x, y, col_w, area.bottom - y)
-        self.rects["write"] = wr
-        has = not pend.empty()
-        rrect(surf, wr, mix(ACCENT, CARD, .1) if has else CARD, 24)
-        fg = DARK if has else FAINT
-        text(surf, f"Save {pend.count()} change{'s' if pend.count() != 1 else ''}" if has else "No pending changes",
-             (wr.x + 32, wr.y + 24), 38, fg, "black")
-        lines = []
-        for key, label in (("house_gold", "Gold"), ("house_food", "Food")):
-            if key in pend.props:
-                lines.append(f"{label} {basic[key]:,} » {pend.props[key]:,}")
-        if pend.cats:
-            lines.append(f"{len(pend.cats)} cat{'s' if len(pend.cats) != 1 else ''} edited")
-        if pend.add_items:
-            lines.append(f"{len(pend.add_items)} item{'s' if len(pend.add_items) != 1 else ''} to storage")
-        if not lines:
-            lines = ["Edits wait here until you save.", "Every save makes a backup first."]
-        ly = wr.y + 78
-        for ln in lines[:4]:
-            if ly + 30 > wr.bottom - 10:
-                break
-            text(surf, ln, (wr.x + 32, ly), 26, mix(fg, DARK, .15) if has else DIM, maxw=wr.w - 64)
-            ly += 34
-
-        target = self.rects[self.ITEMS[self.focus]]
-        focus_ring(surf, self.ring.to(target), 22 if self.ITEMS[self.focus] in ("reset", "wipe", "restart") else 24)
+        res_area = pygame.Rect(col_x, info.bottom + 18, col_w - 14, area.bottom - info.bottom - 18)
+        self._res_scroll_area = res_area
+        self.res_list.draw(surf, res_area, self._render_res_row, show_focus=(self.col == 1))
+        if self.col == 0:
+            target = self.rects[self.ACTIONS[self.act_idx]]
+            focus_ring(surf, self.ring.to(target), 20)
 
     def hint_items(self):
-        item = self.ITEMS[self.focus]
-        if item in ("gold", "food"):
-            return [("DPAD_LR", "±10 (hold = faster)"), ("X", "99,999"), ("B", "Saves")]
-        return [("A", "Select"), ("Y", "Reload"), ("B", "Saves")]
+        if self.col == 1:
+            row = self.res_list.current
+            if row and row.data[0] != "write":
+                return [("DPAD_LR", "Adjust (hold=fast)"), ("X", "Max"), ("B", "Saves")]
+            return [("A", "Save"), ("B", "Saves")]
+        return [("A", "Run"), ("DPAD_LR", "Resources"), ("Y", "Reload"), ("B", "Saves")]
 
 
 # --------------------------------------------------------------------------- cats
 
 class CatsTab(Tab):
     name = "Cats"
-    FILTERS = [("All", lambda c: True),
-               ("House", lambda c: not (c["dead"] or c["donated"]) and c["room"] not in ("", "(ADVENTURE)")),
-               ("Adventure", lambda c: c["room"] == "(ADVENTURE)"),
-               ("Retired", lambda c: c["retired"] and not (c["dead"] or c["donated"])),
-               ("Gone", lambda c: c["dead"] or c["donated"])]
+    FILTERS = [
+        ("House", "active", lambda c: c["room"] != "(ADVENTURE)"),
+        ("Adventure", "active", lambda c: c["room"] == "(ADVENTURE)"),
+        ("All Active", "active", lambda c: True),
+        ("Retired", "active", lambda c: c["retired"]),
+        ("Graveyard", "graveyard", lambda c: True),
+    ]
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
@@ -933,11 +1011,15 @@ class CatsTab(Tab):
         self.f = 0
         self.chip_rects: list[pygame.Rect] = []
 
+    def _pool(self, idx: int) -> list[dict[str, Any]]:
+        _, src, pred = self.FILTERS[idx]
+        cats = self.app.snap.parsed["graveyard"] if src == "graveyard" else self.app.snap.parsed["cats"]
+        return [c for c in cats if pred(c)]
+
     def on_enter(self) -> None:
-        cats = sorted(self.app.snap.parsed["cats"],
-                      key=lambda c: (c["dead"] or c["donated"], c["room"] == "(ADVENTURE)", c["name"].lower()))
-        pred = self.FILTERS[self.f][1]
-        self.list.set_rows([Row(c["name"] or f"#{c['key']}", data=c) for c in cats if pred(c)])
+        cats = sorted(self._pool(self.f),
+                      key=lambda c: (c["room"] != "(ADVENTURE)", c["room"], c["name"].lower()))
+        self.list.set_rows([Row(c["name"] or f"#{c['key']}", data=c) for c in cats])
 
     def handle(self, btn: str) -> bool:
         if btn in (UP, DOWN):
@@ -948,6 +1030,16 @@ class CatsTab(Tab):
             self.on_enter()
         elif btn == A and self.list.current:
             self.app.push(CatEdit(self.app, [r.data for r in self.list.rows], self.list.sel))
+        elif btn == X and self.list.current:
+            c = self.list.current.data
+            if c["dead"]:
+                self.app.pending.cats.setdefault(c["key"], {})["revive"] = True
+                self.app.toast(f"Queued Revive » Attic for {c['name'] or '#' + str(c['key'])} (Menu to save)", GOOD, 3.0)
+            elif c["injured"] or c["wounded"]:
+                self.app.pending.cats.setdefault(c["key"], {})["heal"] = True
+                self.app.toast(f"Queued Heal for {c['name'] or '#' + str(c['key'])} (Menu to save)", GOOD, 3.0)
+            else:
+                return False
         else:
             return False
         return True
@@ -970,24 +1062,38 @@ class CatsTab(Tab):
         gone = c["dead"] or c["donated"]
         ccol = CLASS_COL.get(c["class"], (150, 142, 164))
         rrect(surf, (r.x, r.y, 11, r.h), ccol if not gone else LINE, 5)
-        # sex badge
         scol = SEX_COL.get(c["sex"], DIM)
         pygame.draw.circle(surf, mix(scol, CARD, .25), (r.x + 62, r.centery), 30)
         text(surf, {"Male": "M", "Female": "F"}.get(c["sex"], "?"), (r.x + 62, r.centery), 30, DARK, "black",
              anchor="center")
-        edited = c["key"] in self.app.pending.cats
-        name_r = text(surf, row.label, (r.x + 114, r.y + 16), 38, DIM if gone else TEXT, "black", maxw=420)
-        if edited:
-            pill(surf, "EDITED", name_r.right + 14, name_r.centery, ACCENT, size=19, anchor="midleft")
+        pend_c = self.app.pending.cats.get(c["key"], {})
+        name_r = text(surf, row.label, (r.x + 114, r.y + 16), 38, DIM if gone else TEXT, "black", maxw=380)
+        bx = name_r.right + 12
+        if pend_c.get("revive"):
+            bx = pill(surf, "REVIVING", bx, name_r.centery, GOOD, DARK, size=18, anchor="midleft").right + 8
+        elif pend_c:
+            bx = pill(surf, "EDITED", bx, name_r.centery, ACCENT, DARK, size=18, anchor="midleft").right + 8
+        if c["room"] == "(ADVENTURE)":
+            bx = pill(surf, "ADV PARTY", bx, name_r.centery, INFO, DARK, size=17, anchor="midleft").right + 8
+        if (c["injured"] or c["wounded"]) and not pend_c.get("heal"):
+            inj_lbl = gd.injury_info(c["injury"])["name"] if c["injury"] else "Wounded"
+            bx = pill(surf, inj_lbl, bx, name_r.centery, BAD, DARK, size=17, anchor="midleft").right + 8
+        if "DejaVu" in (c["abilities"]["disorder"] or []):
+            pill(surf, "DÉJÀ VU", bx, name_r.centery, (220, 90, 190), DARK, size=17, anchor="midleft")
+
         lvl = c["level"] if 0 <= c["level"] <= 99 else "?"
-        room = "on adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "-").replace("_", " ")
-        flags = [f for f, on in (("retired", c["retired"]), ("dead", c["dead"]), ("donated", c["donated"])) if on]
-        text(surf, f"{c['class']} · Lv {lvl} · {c['age']}d · {room}" + (f" · {', '.join(flags)}" if flags else ""),
-             (r.x + 114, r.bottom - 18), 26, DIM, anchor="bottomleft", maxw=760)
-        # stat bars
+        room = "Adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "Graveyard").replace("_", " ")
+        mut_n = sum(1 for k, v in c["mutations"].items() if v >= 300)
+        parts = [f"{c['class']}", f"Lv {lvl}", f"{c['age']}d", room, f"HP {c['hp']}/{c['max_hp']}"]
+        if mut_n:
+            parts.append(f"{mut_n} mut")
+        if c["retired"]:
+            parts.append("retired")
+        text(surf, " · ".join(parts), (r.x + 114, r.bottom - 18), 24, DIM, anchor="bottomleft", maxw=860)
+        # effective stat bars
         x0 = r.right - 40 - 7 * 46
         for i, s in enumerate(STATS):
-            v = c["stats"][s]
+            v = c["effective_stats"][s]
             bx = x0 + i * 46
             bh = 60
             rrect(surf, (bx, r.y + 18, 24, bh), mix(LINE, CARD, .4), 7)
@@ -998,11 +1104,10 @@ class CatsTab(Tab):
     def draw(self, surf, area) -> None:
         x = area.x
         self.chip_rects = []
-        cats = self.app.snap.parsed["cats"]
-        for i, (name, pred) in enumerate(self.FILTERS):
+        for i, (name, _, _) in enumerate(self.FILTERS):
             sel = i == self.f
-            n = sum(1 for c in cats if pred(c))
-            r = pill(surf, f"{name}  {n}", x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 26)
+            n = len(self._pool(i))
+            r = pill(surf, f"{name}  {n}", x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 25)
             self.chip_rects.append(r)
             x = r.right + 11
         glyph(surf, "DPAD_LR", x + 11, self.chip_rects[0].centery)
@@ -1013,7 +1118,13 @@ class CatsTab(Tab):
         self.list.draw(surf, la, self.render_row)
 
     def hint_items(self):
-        return [("A", "Edit cat"), ("DPAD_LR", "Filter"), ("B", "Saves")]
+        cur = self.list.current.data if self.list.current else None
+        extra = []
+        if cur and cur["dead"]:
+            extra = [("X", "Revive")]
+        elif cur and (cur["injured"] or cur["wounded"]):
+            extra = [("X", "Heal")]
+        return [("A", "Edit cat")] + extra + [("DPAD_LR", "Filter"), ("B", "Saves")]
 
 
 class CatEdit(Screen):
@@ -1029,12 +1140,36 @@ class CatEdit(Screen):
     def cat(self) -> dict[str, Any]:
         return self.cats[self.idx]
 
+    @staticmethod
+    def _orig_equip(cat: dict[str, Any]) -> dict[str, str | None]:
+        return {sk: (cat["equipment"][sk]["item_id"] if cat["equipment"].get(sk) else None) for sk in cb.EQUIP_SLOT_KEYS}
+
     def load(self) -> None:
         cat = self.cat
         prev = self.app.pending.cats.get(cat["key"], {})
-        self.vals = {"stats": dict(prev.get("stats", cat["stats"])), "level": prev.get("level", cat["level"]),
-                     "age": prev.get("age", cat["age"]), "sex": prev.get("sex", cat["sex"]),
-                     "retired": prev.get("retired", cat["retired"])}
+        orig_ab = cat["abilities"]
+        prev_ab = prev.get("abilities", {})
+        orig_eq = self._orig_equip(cat)
+        prev_eq = prev.get("equipment", {})
+        self.vals = {
+            "stats": dict(prev.get("stats", cat["stats"])),
+            "level": prev.get("level", cat["level"]),
+            "age": prev.get("age", cat["age"]),
+            "sex": prev.get("sex", cat["sex"]),
+            "retired": prev.get("retired", cat["retired"]),
+            "class": prev.get("class", cat["class"]),
+            "heal": bool(prev.get("heal", False)),
+            "revive": bool(prev.get("revive", False)),
+            "abilities": {
+                "active": list(prev_ab.get("active", orig_ab["active"])),
+                "passive": list(prev_ab.get("passive", orig_ab["passive"])),
+                "passive_tiers": list(prev_ab.get("passive_tiers", orig_ab["passive_tiers"])),
+                "disorder": list(prev_ab.get("disorder", orig_ab["disorder"])),
+                "disorder_tiers": list(prev_ab.get("disorder_tiers", orig_ab["disorder_tiers"])),
+            },
+            "mutations": {**cat["mutations"], **prev.get("mutations", {})},
+            "equipment": {**orig_eq, **prev_eq},
+        }
         self.title = cat["name"] or f"Cat #{cat['key']}"
         self.ok = sf.cat_editable(self.app.snap, cat)
         self.build()
@@ -1043,14 +1178,30 @@ class CatEdit(Screen):
         self.build()
 
     def build(self) -> None:
-        v, c, ok = self.vals, self.cat, self.ok
-        rows = [Row(s, data=("stat", s), enabled=ok["stats"]) for s in STATS]
-        rows += [Row("Level", data=("level",), enabled=ok["level"]),
-                 Row("Age", data=("age",), enabled=ok["age"]),
-                 Row("Sex", data=("sex",)),
-                 Row("Retired", data=("retired",)),
-                 Row("Max all stats", data=("max",), enabled=ok["stats"]),
-                 Row("Revert cat", data=("revert",))]
+        c = self.cat
+        rows: list[Row] = []
+        if c["dead"]:
+            rows.append(Row("Revive cat » Attic", data=("revive",)))
+        elif c["injured"] or c["wounded"]:
+            rows.append(Row("Heal cat (HP, injuries & scars)", data=("heal",)))
+        rows += [
+            Row("Active Abilities", data=("sub", "active")),
+            Row("Passives (+ Tier 1/2)", data=("sub", "passive")),
+            Row("Disorders", data=("sub", "disorder")),
+            Row("Mutations & Coat", data=("sub", "mutations")),
+            Row("Equipped Gear", data=("sub", "equip")),
+        ]
+        rows += [Row(s, data=("stat", s), enabled=self.ok["stats"]) for s in STATS]
+        rows += [
+            Row("Class", data=("class",)),
+            Row("Level", data=("level",), enabled=self.ok["level"]),
+            Row("Age", data=("age",), enabled=self.ok["age"]),
+            Row("Sex", data=("sex",)),
+            Row("Retired", data=("retired",)),
+            Row("Max all stats (All 7)", data=("max",), enabled=self.ok["stats"]),
+            Row("Heal & clear disorders", data=("clean",)),
+            Row("Revert cat", data=("revert",)),
+        ]
         self.list.set_rows(rows)
 
     def handle(self, btn: str) -> None:
@@ -1063,7 +1214,7 @@ class CatEdit(Screen):
         elif btn in (LEFT, RIGHT) and row:
             if not row.enabled:
                 return
-            d = (1 if btn == RIGHT else -1)
+            d = 1 if btn == RIGHT else -1
             kind = row.data[0]
             if kind == "stat":
                 s = row.data[1]
@@ -1076,6 +1227,9 @@ class CatEdit(Screen):
             elif kind == "sex":
                 i = self.SEXES.index(self.vals["sex"]) if self.vals["sex"] in self.SEXES else 0
                 self.vals["sex"] = self.SEXES[(i + d) % 3]
+            elif kind == "class":
+                i = cb.CAT_CLASSES.index(self.vals["class"]) if self.vals["class"] in cb.CAT_CLASSES else 0
+                self.vals["class"] = cb.CAT_CLASSES[(i + d) % len(cb.CAT_CLASSES)]
             elif kind == "retired":
                 self.vals["retired"] = not self.vals["retired"]
             else:
@@ -1083,15 +1237,38 @@ class CatEdit(Screen):
             self.commit_local()
         elif btn == A and row and row.enabled:
             kind = row.data[0]
-            if kind == "max":
+            mod = sys.modules[__name__]
+            if kind == "sub":
+                which = row.data[1]
+                if which in ("active", "passive", "disorder"):
+                    self.app.push(ed.AbilitiesScreen(mod, self, which))
+                elif which == "mutations":
+                    self.app.push(ed.MutationsScreen(mod, self))
+                elif which == "equip":
+                    self.app.push(ed.EquipScreen(mod, self))
+            elif kind == "heal":
+                self.vals["heal"] = not self.vals["heal"]
+                self.commit_local()
+                self.app.toast("Heal queued · press Menu to save" if self.vals["heal"] else "Heal cancelled", GOOD)
+            elif kind == "revive":
+                self.vals["revive"] = not self.vals["revive"]
+                self.commit_local()
+                self.app.toast("Revive » Attic queued · Menu to save" if self.vals["revive"] else "Revive cancelled", GOOD)
+            elif kind == "max":
                 self.vals["stats"] = {s: 7 for s in STATS}
                 self.commit_local()
-            elif kind == "revert":
-                c = self.cat
-                self.vals = {"stats": dict(c["stats"]), "level": c["level"], "age": c["age"], "sex": c["sex"],
-                             "retired": c["retired"]}
+                self.app.toast("All base stats set to 7", GOOD)
+            elif kind == "clean":
+                self.vals["heal"] = True
+                self.vals["abilities"]["disorder"] = [None, None]
+                self.vals["abilities"]["disorder_tiers"] = [1, 1]
                 self.commit_local()
-            elif kind in ("sex", "retired"):
+                self.app.toast("Queued heal + clear disorders", GOOD)
+            elif kind == "revert":
+                self.app.pending.cats.pop(self.cat["key"], None)
+                self.load()
+                self.app.toast("Reverted cat edits")
+            elif kind in ("sex", "retired", "class"):
                 self.handle(RIGHT)
         elif btn == START:
             self.app.write()
@@ -1111,21 +1288,68 @@ class CatEdit(Screen):
         ch: dict[str, Any] = {}
         if self.vals["stats"] != c["stats"]:
             ch["stats"] = dict(self.vals["stats"])
-        for k in ("level", "age", "sex", "retired"):
+        for k in ("level", "age", "sex", "retired", "class"):
             if self.vals[k] != c[k]:
                 ch[k] = self.vals[k]
+        if self.vals["heal"]:
+            ch["heal"] = True
+        if self.vals["revive"]:
+            ch["revive"] = True
+        ab_diff = {}
+        for f in ("active", "passive", "passive_tiers", "disorder", "disorder_tiers"):
+            if self.vals["abilities"][f] != c["abilities"][f]:
+                ab_diff[f] = list(self.vals["abilities"][f])
+        if ab_diff:
+            ch["abilities"] = ab_diff
+        mut_diff = {k: v for k, v in self.vals["mutations"].items() if v != c["mutations"].get(k)}
+        if mut_diff:
+            ch["mutations"] = mut_diff
+        orig_eq = self._orig_equip(c)
+        eq_diff = {k: v for k, v in self.vals["equipment"].items() if v != orig_eq.get(k)}
+        if eq_diff:
+            ch["equipment"] = eq_diff
         if ch:
-            self.app.pending.cats[c["key"]] = {**sf.cat_change_base(self.app.snap, c), **ch}
+            self.app.pending.cats[c["key"]] = ch
         else:
             self.app.pending.cats.pop(c["key"], None)
+
+    def _sub_preview(self, which: str) -> tuple[str, tuple]:
+        ab = self.vals["abilities"]
+        if which == "active":
+            names = [gd.active_info(a)["name"] for a in ab["active"][1:] if a]
+            return (", ".join(names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "") if names else "None", TEXT)
+        if which == "passive":
+            parts = [gd.passive_info(p, t).get("display_name", gd.passive_info(p, t)["name"])
+                     for p, t in zip(ab["passive"], ab["passive_tiers"]) if p]
+            return (", ".join(parts) if parts else "None", ACCENT if parts else DIM)
+        if which == "disorder":
+            parts = [gd.disorder_info(d)["name"] for d in ab["disorder"] if d]
+            return (", ".join(parts) if parts else "None", BAD if parts else GOOD)
+        if which == "mutations":
+            muts = self.vals["mutations"]
+            cnt = sum(1 for k, v in muts.items() if v >= 300)
+            defs = sum(1 for k, v in muts.items() if gd.signed_mut_id(v) == -2)
+            txt = f"{cnt} active" + (f" · {defs} defect" if defs else "")
+            return (txt, BAD if defs else GOOD if cnt else DIM)
+        if which == "equip":
+            eq = [gd.item_info(v)["name"] for v in self.vals["equipment"].values() if v]
+            return (f"{len(eq)}/5 equipped" if eq else "Empty", INFO if eq else DIM)
+        return ("", DIM)
 
     def render_row(self, surf, r, row: Row, selected: bool) -> None:
         v, c = self.vals, self.cat
         kind = row.data[0]
         col = TEXT if row.enabled else FAINT
-        text(surf, row.label, (r.x + 30, r.centery), 32, col, "black", anchor="midleft")
-        ccol = CLASS_COL.get(c["class"], ACCENT)
-        if kind == "stat":
+        text(surf, row.label, (r.x + 30, r.centery), 30, col, "black", anchor="midleft")
+        if kind == "sub":
+            prev, pcol = self._sub_preview(row.data[1])
+            text(surf, prev, (r.right - 66, r.centery), 24, pcol, "bold", anchor="midright", maxw=r.w - 380)
+            tri(surf, ACCENT if selected else DIM, (r.right - 34, r.centery), 10, "right")
+        elif kind in ("heal", "revive"):
+            on = v[kind]
+            pill(surf, "QUEUED" if on else "PRESS A", r.right - 30, r.centery, GOOD if on else ACCENT, DARK, size=20,
+                 anchor="midright")
+        elif kind == "stat":
             s = row.data[1]
             new, old = v["stats"][s], c["stats"][s]
             x = r.x + 190
@@ -1135,123 +1359,195 @@ class CatEdit(Screen):
                 colr = stat_col(new) if filled and was else ACCENT if filled else mix(BAD, CARD, .4) if was else mix(LINE, CARD, .3)
                 rrect(surf, (x + i * 54, r.centery - 15, 46, 30), colr, 8)
             text(surf, str(new), (r.right - 80, r.centery), 38, ACCENT if new != old else TEXT, "black", anchor="center")
-        elif kind in ("level", "age", "sex", "retired"):
+        elif kind in ("level", "age", "sex", "retired", "class"):
             val = v[kind]
             shown = ("yes" if val else "no") if kind == "retired" else (f"{val} days" if kind == "age" else str(val))
-            if kind == "level" and not (0 <= val <= 99):
-                shown = "?"
             changed = val != c[kind]
-            if not row.enabled:
-                text(surf, "locked · field not found safely", (r.x + 190, r.centery), 26, FAINT, anchor="midleft")
-            else:
-                tri(surf, DIM if selected else LINE, (r.right - 202, r.centery), 11, "left")
-                tri(surf, DIM if selected else LINE, (r.right - 40, r.centery), 11, "right")
-            text(surf, shown, (r.right - 121, r.centery), 35, ACCENT if changed else col, "black", anchor="center")
+            tri(surf, DIM if selected else LINE, (r.right - 252, r.centery), 11, "left")
+            tri(surf, DIM if selected else LINE, (r.right - 40, r.centery), 11, "right")
+            text(surf, shown, (r.right - 146, r.centery), 32, ACCENT if changed else col, "black", anchor="center")
             if changed:
                 was = c[kind]
                 was_s = ("yes" if was else "no") if kind == "retired" else str(was)
-                text(surf, f"was {was_s}", (r.x + 190, r.centery), 24, DIM, anchor="midleft")
+                text(surf, f"was {was_s}", (r.x + 210, r.centery), 22, DIM, anchor="midleft")
         else:
             text(surf, "A", (r.right - 54, r.centery), 27, DIM, "black", anchor="center")
 
     def draw(self, surf) -> None:
         c = self.cat
-        ccol = CLASS_COL.get(c["class"], ACCENT)
-        # side card
-        card = pygame.Rect(W - PAD - 540, HEADER_H + 28, 540, CONTENT_BOTTOM - HEADER_H - 28)
+        cls_name = self.vals["class"]
+        ccol = CLASS_COL.get(cls_name, ACCENT)
+        card = pygame.Rect(W - PAD - 560, HEADER_H + 24, 560, CONTENT_BOTTOM - HEADER_H - 24)
         rrect(surf, card, CARD, 26)
-        band = pygame.Rect(card.x, card.y, card.w, 202)
+        band = pygame.Rect(card.x, card.y, card.w, 188)
         tint = pygame.Surface(band.size, pygame.SRCALPHA)
         tint.fill((*ccol, 40))
         surf.blit(tint, band.topleft)
-        icon_cat(surf, card.x + 94, card.y + 106, 54, ccol, CARD)
-        text(surf, c["name"] or f"#{c['key']}", (card.x + 176, card.y + 48), 42, TEXT, "black", maxw=card.w - 200)
-        pill(surf, c["class"], card.x + 176, card.y + 116, ccol, size=23)
-        y = card.y + 230
-        room = "On an adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "-").replace("_", " ")
-        status = ", ".join(f for f, on in (("dead", c["dead"]), ("donated", c["donated"]), ("old", c["isOld"])) if on)
-        for lab, val in (("ROOM", room), ("STATUS", status or "healthy"), ("CAT", f"{self.idx + 1} of {len(self.cats)}")):
-            text(surf, lab, (card.x + 38, y), 20, FAINT, "black")
-            text(surf, val, (card.x + 38, y + 26), 32, TEXT, "bold", maxw=card.w - 76)
-            y += 86
+        icon_cat(surf, card.x + 88, card.y + 98, 50, ccol, CARD)
+        text(surf, c["name"] or f"#{c['key']}", (card.x + 164, card.y + 42), 40, TEXT, "black", maxw=card.w - 190)
+        pill(surf, cls_name, card.x + 164, card.y + 106, ccol, size=22)
+
+        y = card.y + 208
+        room = "Adventure Party" if c["room"] == "(ADVENTURE)" else (c["room"] or "Graveyard").replace("_", " ")
+        inj_name = gd.injury_info(c["injury"])["name"] if (c["injury"] and not self.vals["heal"]) else ""
+        status = "Healthy" if not (c["dead"] or inj_name) else ("Dead (Graveyard)" if c["dead"] else f"Injured: {inj_name}")
+        if self.vals["revive"]:
+            status = "Reviving » Attic"
+        elif self.vals["heal"] and (c["injured"] or c["wounded"]):
+            status = "Healing » Full"
+
+        eff_con = max(1, self.vals["stats"]["CON"] + c["level_bonuses"]["CON"] + (0 if self.vals["heal"] else c["injury_mods"]["CON"]))
+        eff_cha = max(1, self.vals["stats"]["CHA"] + c["level_bonuses"]["CHA"] + (0 if self.vals["heal"] else c["injury_mods"]["CHA"]))
+        hp_str = f"{eff_con * 4}/{eff_con * 4}" if (self.vals["heal"] or c["hp_raw"] == cb.HP_FULL) else f"{c['hp']}/{eff_con * 4}"
+
+        for lab, val, vcol in (("LOCATION", room, INFO if c["room"] == "(ADVENTURE)" else TEXT),
+                               ("STATUS", status, BAD if "Injured" in status or "Dead" in status else GOOD),
+                               ("HP · MANA", f"HP {hp_str}  ·  Mana {eff_cha * 3}  ·  Cat {self.idx + 1}/{len(self.cats)}", TEXT)):
+            text(surf, lab, (card.x + 34, y), 18, FAINT, "black")
+            text(surf, val, (card.x + 34, y + 24), 27, vcol, "bold", maxw=card.w - 68)
+            y += 68
+
+        # Unobfuscated abilities summary
+        ab = self.vals["abilities"]
+        text(surf, "ABILITIES & DISORDERS", (card.x + 34, y), 18, FAINT, "black")
+        y += 28
+        shown_ab: list[tuple[str, tuple]] = []
+        for aid in ab["active"][1:]:
+            if aid:
+                shown_ab.append((gd.active_info(aid)["name"], TEXT))
+        for pid, tier in zip(ab["passive"], ab["passive_tiers"]):
+            if pid:
+                pi = gd.passive_info(pid, tier)
+                shown_ab.append((f"[P] {pi.get('display_name', pi['name'])}", ACCENT))
+        for did in ab["disorder"]:
+            if did:
+                shown_ab.append((f"[D] {gd.disorder_info(did)['name']}", BAD))
+
         cur = self.list.current
+        reserve = 148 if (cur and cur.data[0] == "stat") else 34
+        for nm, ncol in shown_ab:
+            if y + 28 > card.bottom - reserve:
+                break
+            text(surf, nm, (card.x + 34, y), 24, ncol, maxw=card.w - 68)
+            y += 30
+
         if cur and cur.data[0] == "stat":
-            info = pygame.Rect(card.x + 22, card.bottom - 152, card.w - 44, 130)
+            info = pygame.Rect(card.x + 22, card.bottom - 144, card.w - 44, 124)
             rrect(surf, info, CARD_HI, 18)
             s = cur.data[1]
-            text(surf, s, (info.x + 22, info.y + 16), 24, stat_col(self.vals["stats"][s]), "black")
-            words, lines, ln = STAT_INFO[s].split(), [], ""
-            for w in words:
-                if F(26).size((ln + " " + w).strip())[0] > info.w - 44:
-                    lines.append(ln)
-                    ln = w
-                else:
-                    ln = (ln + " " + w).strip()
-            lines.append(ln)
-            for i, l in enumerate(lines[:2]):
-                text(surf, l, (info.x + 22, info.y + 54 + i * 32), 26, DIM)
-        text(surf, "ABILITIES", (card.x + 38, y), 20, FAINT, "black")
-        y += 32
-        abil = [a for a in c["abilities"]["active"] + c["abilities"]["passive"] if a and a != "DefaultMove"]
-        for a in abil[:6]:
-            if y > card.bottom - (188 if cur and cur.data[0] == "stat" else 46):
-                break
-            text(surf, a, (card.x + 38, y), 27, DIM, maxw=card.w - 76)
-            y += 36
-        # stats list
-        area = pygame.Rect(PAD, HEADER_H + 28, card.x - PAD - 40, CONTENT_BOTTOM - HEADER_H - 28)
+            text(surf, s, (info.x + 20, info.y + 14), 23, stat_col(self.vals["stats"][s]), "black")
+            for i, l in enumerate(ed.wrap_lines(F(24), STAT_INFO[s], info.w - 40, max_lines=2)):
+                text(surf, l, (info.x + 20, info.y + 48 + i * 30), 24, DIM)
+
+        area = pygame.Rect(PAD, HEADER_H + 24, card.x - PAD - 36, CONTENT_BOTTOM - HEADER_H - 24)
         self.list.draw(surf, area, self.render_row)
-        # prev/next affordance
-        glyph(surf, "LB", card.x + card.w - 136, card.y + 32)
-        glyph(surf, "RB", card.x + card.w - 74, card.y + 32)
+        glyph(surf, "LB", card.x + card.w - 136, card.y + 30)
+        glyph(surf, "RB", card.x + card.w - 74, card.y + 30)
 
     def hint_items(self):
-        return [("DPAD_LR", "Adjust"), ("LBRB", "Prev/next cat"), ("B", "Done")] + pending_hint(self.app)
+        return [("A", "Open / Run"), ("DPAD_LR", "Adjust"), ("LBRB", "Prev/next cat"), ("B", "Done")] + pending_hint(self.app)
 
 
 # --------------------------------------------------------------------------- items
 
 class ItemsTab(Tab):
     name = "Items"
+    CONTAINERS = [
+        ("storage", "Home Storage"),
+        ("backpack", "Adventure Backpack"),
+        ("trash", "Trash"),
+    ]
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        data = json.loads((Path(__file__).parent / "gamedata/items/items.json").read_text(encoding="utf-8"))
-        self.items = sorted(data.values(), key=lambda i: (i.get("name") or i["id"]).lower())
+        self.items = sorted(gd.items().values(), key=lambda i: (i.get("name") or i["id"]).lower())
         kinds = sorted({i.get("kind") or "other" for i in self.items})
-        self.tabs = ["all"] + kinds
-        self.t = 0
-        self.list = ListView(row_h=84, gap=8)
+        self.tabs = ["owned", "all"] + kinds
+        self.c_idx = 0  # 0=Home Storage, 1=Adventure Backpack, 2=Trash
+        self.t = 1      # default to "all" catalog so browsing + adding is instant
+        self.list = ListView(row_h=82, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
+        self.container_rects: list[tuple[pygame.Rect, int]] = []
+
+    @property
+    def container(self) -> str:
+        return self.CONTAINERS[self.c_idx][0]
+
+    @property
+    def container_label(self) -> str:
+        return self.CONTAINERS[self.c_idx][1]
 
     def on_enter(self) -> None:
-        kind = self.tabs[self.t]
-        self.list.set_rows([Row(it.get("name") or it["id"], data=it) for it in self.items
-                            if kind == "all" or (it.get("kind") or "other") == kind])
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        grp = self.container
+        mode = self.tabs[self.t]
+        rows: list[Row] = []
+        if mode == "owned":
+            rems = set(self.app.pending.inv_remove[grp])
+            for raw in self.app.snap.parsed["items"][grp]:
+                if int(raw["instance_id"]) in rems:
+                    continue
+                info = gd.item_info(raw["item_id"])
+                rows.append(Row(info["name"], data=("owned", raw, info)))
+            for iid in self.app.pending.inv_add[grp]:
+                info = gd.item_info(iid)
+                rows.append(Row(info["name"], data=("queued", iid, info)))
+        else:
+            for it in self.items:
+                if mode == "all" or (it.get("kind") or "other") == mode:
+                    rows.append(Row(it.get("name") or it["id"], data=("catalog", it["id"], it)))
+        self.list.set_rows(rows)
 
     def handle(self, btn: str) -> bool:
-        q = self.app.pending.add_items
+        grp = self.container
+        adds = self.app.pending.inv_add[grp]
+        rems = self.app.pending.inv_remove[grp]
         if btn in (UP, DOWN):
-            self.list.move((-1 if btn == UP else 1) * (1 if self.app.input.count.get(btn, 0) < 14 else 4))
+            self.list.move((-1 if btn == UP else 1) * (1 if self.app.input.count.get(btn, 0) < 12 else 5))
         elif btn in (LEFT, RIGHT):
             self.t = (self.t + (1 if btn == RIGHT else -1)) % len(self.tabs)
             self.list.sel = 0
-            self.on_enter()
+            self._rebuild()
+        elif btn == Y:
+            self.c_idx = (self.c_idx + 1) % len(self.CONTAINERS)
+            self.list.sel = 0
+            self._rebuild()
         elif btn == A and self.list.current:
-            q.append(self.list.current.data["id"])
+            kind, obj, info = self.list.current.data
+            if kind == "catalog":
+                adds.append(info["id"])
+                self.app.toast(f"+1 {info['name']} » {self.container_label}", GOOD, 1.8)
         elif btn == X and self.list.current:
-            if self.list.current.data["id"] in q:
-                q.remove(self.list.current.data["id"])
+            kind, obj, info = self.list.current.data
+            if kind == "catalog":
+                if info["id"] in adds:
+                    adds.remove(info["id"])
+            elif kind == "queued":
+                if obj in adds:
+                    adds.remove(obj)
+                self._rebuild()
+            elif kind == "owned":
+                rems.append(int(obj["instance_id"]))
+                self._rebuild()
+                self.app.toast(f"Removed {info['name']} from {self.container_label}", ACCENT, 1.8)
         else:
             return False
         return True
 
     def click(self, pos) -> None:
+        for r, i in self.container_rects:
+            if r.collidepoint(pos):
+                self.c_idx = i
+                self.list.sel = 0
+                self._rebuild()
+                return
         for r, i in self.chip_rects:
             if r.collidepoint(pos):
                 self.t = i
                 self.list.sel = 0
-                self.on_enter()
+                self._rebuild()
                 return
         i = self.list.hit(pos)
         if i is not None:
@@ -1260,60 +1556,92 @@ class ItemsTab(Tab):
             self.list.sel = i
 
     def render_row(self, surf, r, row: Row, selected: bool) -> None:
-        it = row.data
+        kind, obj, it = row.data
         rc = RARITY_COL.get(it.get("rarity", ""), DIM)
-        pygame.draw.circle(surf, rc, (r.x + 40, r.centery), 12)
-        text(surf, row.label, (r.x + 74, r.centery), 34, TEXT, "bold", anchor="midleft", maxw=r.w - 380)
-        text(surf, f"{(it.get('rarity') or '').replace('_', ' ')} · {it.get('kind') or 'other'}", (r.right - 122, r.centery),
-             24, FAINT, anchor="midright")
-        n = self.app.pending.add_items.count(it["id"])
-        if n:
-            pill(surf, f"+{n}", r.right - 28, r.centery, ACCENT, size=27, anchor="midright")
+        pygame.draw.circle(surf, rc, (r.x + 36, r.centery), 11)
+        text(surf, row.label, (r.x + 68, r.centery), 31, ACCENT if kind == "queued" else TEXT, "bold",
+             anchor="midleft", maxw=r.w - 360)
+        st = gd.format_stats(it.get("stats"))
+        meta = st if st else f"{(it.get('rarity') or '').replace('_', ' ')} · {it.get('kind') or 'other'}"
+        text(surf, meta, (r.right - 108, r.centery), 21, GOOD if st else FAINT, "bold" if st else "semi",
+             anchor="midright", maxw=260)
+        if kind == "catalog":
+            n = self.app.pending.inv_add[self.container].count(it["id"])
+            if n:
+                pill(surf, f"+{n}", r.right - 22, r.centery, ACCENT, size=24, anchor="midright")
+        elif kind == "queued":
+            pill(surf, "NEW", r.right - 22, r.centery, ACCENT, size=18, anchor="midright")
+        elif kind == "owned" and obj.get("field_a", -1) >= 0:
+            pill(surf, f"×{obj['field_a']}", r.right - 22, r.centery, CARD_HI, DIM, size=18, anchor="midright")
 
     def draw(self, surf, area) -> None:
-        # category chips, scrolled so the selected one is visible
+        # Row 1: Home Storage / Adventure Backpack / Trash container pills
+        self.container_rects = []
+        cx = area.x
+        for i, (ckey, clbl) in enumerate(self.CONTAINERS):
+            sel = i == self.c_idx
+            cnt = len(self.app.snap.parsed["items"][ckey]) + len(self.app.pending.inv_add[ckey]) - len(set(self.app.pending.inv_remove[ckey]))
+            bg = (INFO if ckey == "backpack" else ACCENT) if sel else CARD
+            r = pill(surf, f"{clbl}  {cnt}", cx, area.y, bg, DARK if sel else DIM, 23)
+            self.container_rects.append((r, i))
+            cx = r.right + 12
+        glyph(surf, "Y", cx + 6, self.container_rects[0][0].centery)
+
+        # Row 2: Mode / category chips
+        cy = area.y + 52
         self.chip_rects = []
-        widths = [F(24, "bold").size(t)[0] + 24 + 11 for t in self.tabs]
+        labels = ["Owned" if t == "owned" else ("Add: All" if t == "all" else t.replace("_", " ").title()) for t in self.tabs]
+        widths = [F(21, "bold").size(l)[0] + 30 for l in labels]
         start = 0
-        while sum(widths[start:self.t + 1]) > area.w - 568 and start < self.t:
+        while sum(widths[start:self.t + 1]) > area.w - 640 and start < self.t:
             start += 1
         x = area.x
         if start:
-            tri(surf, DIM, (x + 8, area.y + 20), 9, "left")
-            x += 27
+            tri(surf, DIM, (x + 8, cy + 16), 8, "left")
+            x += 24
         for i in range(start, len(self.tabs)):
             sel = i == self.t
-            r = pill(surf, self.tabs[i].replace("_", " "), x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 24)
-            if r.right > area.right - 540:
+            w_est = F(21, "bold").size(labels[i])[0] + 21
+            if x + w_est > area.right - 600:
                 break
+            r = pill(surf, labels[i], x, cy, ACCENT if sel else CARD, DARK if sel else DIM, 21)
             self.chip_rects.append((r, i))
-            x = r.right + 11
-        la = pygame.Rect(area.x, area.y + 64, area.w - 540, area.h - 64)
-        self.list.draw(surf, la, self.render_row)
-        # queue panel
-        qp = pygame.Rect(area.right - 500, area.y, 500, area.h)
-        rrect(surf, qp, CARD, 24)
-        text(surf, "GOING TO STORAGE", (qp.x + 32, qp.y + 30), 20, FAINT, "black")
-        q = self.app.pending.add_items
-        if not q:
-            text(surf, "Nothing queued yet", (qp.x + 32, qp.y + 74), 30, DIM, "bold")
-            text(surf, "A adds one, X removes one.", (qp.x + 32, qp.y + 116), 26, FAINT)
-            text(surf, "Menu saves everything.", (qp.x + 32, qp.y + 152), 26, FAINT)
-            return
-        counts: dict[str, int] = {}
-        for i in q:
-            counts[i] = counts.get(i, 0) + 1
-        names = {it["id"]: it.get("name") or it["id"] for it in self.items}
-        y = qp.y + 74
-        for iid, n in list(counts.items())[-12:]:
-            text(surf, names.get(iid, iid), (qp.x + 32, y), 28, TEXT, "bold", maxw=qp.w - 135)
-            text(surf, f"×{n}", (qp.right - 32, y), 28, ACCENT, "black", anchor="topright")
-            y += 42
-        text(surf, f"{len(q)} item{'s' if len(q) != 1 else ''} total", (qp.x + 32, qp.bottom - 30), 26, DIM,
-             anchor="bottomleft")
+            x = r.right + 8
+
+        list_w = area.w - 620
+        la = pygame.Rect(area.x, cy + 52, list_w, area.bottom - (cy + 52))
+        if not self.list.rows:
+            text(surf, f"No items in {self.container_label}", (la.centerx, la.y + 100), 30, FAINT, "bold", anchor="midtop")
+        else:
+            self.list.draw(surf, la, self.render_row)
+
+        # Right panel: Full Item Details + Armor Set Bonus + Queue summary
+        rx = area.right - 580
+        q_h = 84
+        detail_box = pygame.Rect(rx, area.y, 580, area.h - q_h - 14)
+        cur_item = self.list.current.data[2] if self.list.current else None
+        ed.draw_item_detail(sys.modules[__name__], surf, detail_box, cur_item)
+
+        qbox = pygame.Rect(rx, detail_box.bottom + 14, 580, q_h)
+        rrect(surf, qbox, CARD, 20)
+        parts = []
+        for ckey, clbl in self.CONTAINERS:
+            a_n = len(self.app.pending.inv_add[ckey])
+            r_n = len(self.app.pending.inv_remove[ckey])
+            if a_n or r_n:
+                short = "Home" if ckey == "storage" else "Adv" if ckey == "backpack" else "Trash"
+                parts.append(f"{short}: " + " ".join(([f"+{a_n}"] if a_n else []) + ([f"-{r_n}"] if r_n else [])))
+        if parts:
+            text(surf, "PENDING ITEM EDITS", (qbox.x + 24, qbox.y + 14), 16, ACCENT, "black")
+            text(surf, "  ·  ".join(parts), (qbox.x + 24, qbox.y + 42), 23, TEXT, "bold", maxw=qbox.w - 48)
+        else:
+            text(surf, f"TARGET: {self.container_label.upper()}", (qbox.x + 24, qbox.y + 14), 16, FAINT, "black")
+            text(surf, "Press Y to switch Home / Adventure / Trash.", (qbox.x + 24, qbox.y + 42), 22, DIM, maxw=qbox.w - 48)
 
     def hint_items(self):
-        return [("A", "Add"), ("X", "Remove"), ("DPAD_LR", "Category"), ("B", "Saves")]
+        if self.tabs[self.t] == "owned":
+            return [("X", "Remove"), ("Y", "Home/Adv"), ("DPAD_LR", "Filter"), ("B", "Saves")]
+        return [("A", f"Add to {self.container_label.split()[0]}"), ("X", "Undo"), ("Y", "Home/Adv"), ("DPAD_LR", "Filter")]
 
 
 # --------------------------------------------------------------------------- backups
@@ -1557,24 +1885,27 @@ class App:
             self.stack.pop()
         self.reload()
 
-    def write(self, steven: str | None = None, guard: bool | None = None) -> bool:
+    def write(self, steven: str | None = None, guard: bool | None = None, heal_all: bool = False) -> bool:
         assert self.save
         ch = self.pending
         if steven:
             ch.steven = steven
         if guard is not None:
             ch.guard = guard
+        if heal_all:
+            ch.heal_all = True
         if ch.empty():
             self.toast("Nothing to save")
             return False
+        reason = "steven-reset" if steven else ("heal-all" if heal_all else "edit")
         try:
-            sf.apply_changes(self.save, ch, reason="steven-reset" if steven else "edit")
+            sf.apply_changes(self.save, ch, reason=reason)
         except sf.GameRunningError as e:
-            ch.steven, ch.guard = None, None
+            ch.steven, ch.guard, ch.heal_all = None, None, False
             self.toast(str(e), BAD, 5)
             return False
         except Exception as e:  # noqa: BLE001
-            ch.steven, ch.guard = None, None
+            ch.steven, ch.guard, ch.heal_all = None, None, False
             traceback.print_exc()
             self.toast(f"Not saved, file untouched: {e}", BAD, 7)
             return False
@@ -1586,8 +1917,10 @@ class App:
             self.toast("Auto-block on · Steven can't arm the penalty" if st.guarded else "Auto-block off",
                        GOOD if st.guarded == guard else BAD, 4)
         elif steven and st is not None:
-            ok = not st.active
-            self.toast("Steven penalty reset" if ok else "Reset written but flag still set?!", GOOD if ok else BAD, 4)
+            ok = not st.active and st.dejavu_cats == 0
+            self.toast("Steven penalty & Déjà Vu reset" if ok else "Reset written", GOOD if ok else BAD, 4)
+        elif heal_all:
+            self.toast(f"Healed all {self.snap.parsed['total_cats']} active cats · backup made", GOOD, 4)
         else:
             self.toast(f"Saved {n} change{'s' if n != 1 else ''} · backup made", GOOD)
         return True

@@ -180,57 +180,82 @@ def start_steam() -> None:
 
 # --------------------------------------------------------------------------- artwork
 
-def make_artwork(grid: Path, appid: int) -> None:
-    """Library capsule, wide capsule, hero, logo and icon, drawn with pygame (no external assets)."""
+def make_artwork(grid: Path, appid: int) -> Path:
+    """Library capsule, wide capsule, hero, logo (+ layout json) and icon, drawn with pygame."""
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    grid.mkdir(parents=True, exist_ok=True)
+    icon_path = grid / f"{appid}_icon.png"
     try:
+        import json
+        import math
         import pygame
     except ImportError:
-        return
+        return icon_path
     from . import ui
 
     pygame.init()
     ui.F = ui.Fonts()
-    grid.mkdir(parents=True, exist_ok=True)
 
-    def canvas(w: int, h: int) -> pygame.Surface:
+    def canvas(w: int, h: int, gx: float = 0.82, gy: float = 0.15, gr: int | None = None) -> pygame.Surface:
         s = pygame.Surface((w, h))
         for y in range(h):
             pygame.draw.line(s, ui.mix(ui.BG_TOP, ui.BG_BOT, y / h), (0, y), (w, y))
+        n = 48
+        small = pygame.Surface((n, n), pygame.SRCALPHA)
+        for yy in range(n):
+            for xx in range(n):
+                d = math.hypot(xx - n / 2 + .5, yy - n / 2 + .5) / (n / 2)
+                small.set_at((xx, yy), (*ui.ACCENT, int(max(0.0, 1 - d) ** 2 * 56)))
+        rad = gr or int(max(w, h) * 0.9)
+        glow = pygame.transform.smoothscale(small, (rad * 2, rad * 2))
+        s.blit(glow, (int(w * gx) - rad, int(h * gy) - rad))
         return s
 
-    def title(s: pygame.Surface, cx: int, cy: int, size: int, sub: bool = True) -> None:
-        ui.text(s, "MewDeck", (cx, cy), size, ui.TEXT, "black", anchor="center")
-        if sub:
-            ui.text(s, "Mewgenics save editor", (cx, cy + size * 0.75), max(14, size // 3), ui.ACCENT, "black",
-                    anchor="center")
-
-    # portrait capsule 600x900
-    s = canvas(600, 900)
-    ui.icon_cat(s, 300, 360, 170)
-    title(s, 300, 640, 96)
+    # 1. Portrait capsule 600x900 (<appid>p.png)
+    s = canvas(600, 900, gx=0.5, gy=0.34, gr=460)
+    pygame.draw.circle(s, ui.mix(ui.CARD_HI, ui.ACCENT, 0.15), (300, 330), 196)
+    pygame.draw.circle(s, ui.ACCENT, (300, 330), 196, 5)
+    ui.icon_cat(s, 300, 344, 152)
+    ui.text(s, "MewDeck", (300, 610), 104, ui.TEXT, "black", anchor="center")
+    ui.text(s, "Mewgenics Save Editor", (300, 690), 34, ui.ACCENT, "black", anchor="center")
+    ui.pill(s, "GAMEPAD READY · BAZZITE", 300, 778, ui.CARD_HI, ui.DIM, size=22, anchor="center")
     pygame.image.save(s, str(grid / f"{appid}p.png"))
-    # wide capsule 920x430
-    s = canvas(920, 430)
-    ui.icon_cat(s, 230, 225, 120)
-    ui.text(s, "MewDeck", (400, 190), 96, ui.TEXT, "black", anchor="midleft")
-    ui.text(s, "Mewgenics save editor", (404, 268), 34, ui.ACCENT, "black", anchor="midleft")
+
+    # 2. Wide / recent capsule 920x430 (<appid>.png)
+    s = canvas(920, 430, gx=0.26, gy=0.5, gr=380)
+    pygame.draw.circle(s, ui.mix(ui.CARD_HI, ui.ACCENT, 0.15), (210, 215), 144)
+    pygame.draw.circle(s, ui.ACCENT, (210, 215), 144, 4)
+    ui.icon_cat(s, 210, 226, 112)
+    ui.text(s, "MewDeck", (392, 174), 102, ui.TEXT, "black", anchor="midleft")
+    ui.text(s, "Mewgenics Save Editor", (396, 256), 36, ui.ACCENT, "black", anchor="midleft")
+    ui.pill(s, "STEVEN RESET · CATS · ITEMS", 396, 318, ui.CARD_HI, ui.DIM, size=20, anchor="midleft")
     pygame.image.save(s, str(grid / f"{appid}.png"))
-    # hero 1920x620 (no text; Steam overlays the logo)
-    s = canvas(1920, 620)
-    for i, (x, y, r) in enumerate(((260, 380, 150), (1640, 250, 190), (980, 520, 90), (1250, 120, 70))):
-        ui.icon_cat(s, x, y, r, ui.mix(ui.ACCENT, ui.BG_TOP, 0.55 + i * 0.1), ui.mix(ui.BG_TOP, ui.BG_BOT, .5))
+
+    # 3. Hero banner 1920x620 (<appid>_hero.png — no text; Steam overlays the logo)
+    s = canvas(1920, 620, gx=0.78, gy=0.35, gr=760)
+    for i, (x, y, r) in enumerate(((1520, 310, 210), (1180, 470, 115), (1760, 140, 90), (260, 180, 100))):
+        ui.icon_cat(s, x, y, r, ui.mix(ui.ACCENT, ui.BG_TOP, 0.58 + i * 0.08), ui.mix(ui.BG_TOP, ui.BG_BOT, .5))
     pygame.image.save(s, str(grid / f"{appid}_hero.png"))
-    # logo (transparent) 800x260
+
+    # 4. Transparent logo 800x260 (<appid>_logo.png + <appid>_logo.json)
     s = pygame.Surface((800, 260), pygame.SRCALPHA)
-    ui.icon_cat(s, 120, 140, 95)
-    ui.text(s, "MewDeck", (250, 130), 120, ui.TEXT, "black", anchor="midleft")
+    ui.icon_cat(s, 116, 138, 92)
+    ui.text(s, "MewDeck", (244, 106), 116, ui.DARK, "black", anchor="midleft")
+    ui.text(s, "MewDeck", (240, 102), 116, ui.TEXT, "black", anchor="midleft")
+    ui.text(s, "Mewgenics Save Editor", (244, 194), 38, ui.ACCENT, "black", anchor="midleft")
     pygame.image.save(s, str(grid / f"{appid}_logo.png"))
-    # icon 256x256
+    (grid / f"{appid}_logo.json").write_text(
+        json.dumps({"logoPosition": {"pinnedPosition": "BottomLeft", "widthPct": 44, "heightPct": 50}}),
+        encoding="utf-8",
+    )
+
+    # 5. Icon 256x256 (<appid>_icon.png)
     s = pygame.Surface((256, 256), pygame.SRCALPHA)
-    pygame.draw.rect(s, ui.CARD, (0, 0, 256, 256), border_radius=48)
-    ui.icon_cat(s, 128, 136, 92)
-    pygame.image.save(s, str(grid / f"{appid}_icon.png"))
+    pygame.draw.rect(s, ui.CARD, (0, 0, 256, 256), border_radius=52)
+    pygame.draw.rect(s, ui.ACCENT, (0, 0, 256, 256), width=6, border_radius=52)
+    ui.icon_cat(s, 128, 138, 92)
+    pygame.image.save(s, str(icon_path))
+    return icon_path
 
 
 # --------------------------------------------------------------------------- shortcuts.vdf edit
@@ -239,17 +264,29 @@ def _entries(root: dict) -> dict:
     return root.setdefault("shortcuts", {})
 
 
-def _find(entries: dict, exe_q: str) -> str | None:
+def _entry_str(entry: dict, *keys: str) -> str:
+    for k in keys:
+        v = entry.get(k)
+        if v and isinstance(v, tuple) and len(v) == 2:
+            return str(v[1])
+    return ""
+
+
+def _find_all(entries: dict, exe_q: str) -> list[str]:
+    target = exe_q.strip('"')
+    found = []
     for k, e in entries.items():
-        if isinstance(e, dict):
-            v = e.get("Exe") or e.get("exe")
-            if v and v[1].strip('"') == exe_q.strip('"'):
-                return k
-    return None
+        if not isinstance(e, dict):
+            continue
+        exe_v = _entry_str(e, "Exe", "exe").strip('"')
+        name_v = _entry_str(e, "AppName", "appname").strip()
+        if exe_v == target or name_v.lower() == APP_NAME.lower():
+            found.append(k)
+    return found
 
 
 def add_shortcut(user: Path, exe: Path, icon: Path | None) -> tuple[int, bool]:
-    """Returns (appid, added). Idempotent: an existing MewDeck entry is updated, not duplicated."""
+    """Returns (appid, added). Idempotent: updates existing MewDeck entry (matching Exe or AppName)."""
     cfg = user / "config"
     cfg.mkdir(parents=True, exist_ok=True)
     vdf = cfg / "shortcuts.vdf"
@@ -257,12 +294,15 @@ def add_shortcut(user: Path, exe: Path, icon: Path | None) -> tuple[int, bool]:
     entries = _entries(root)
     exe_q = f'"{exe}"'
     appid = shortcut_appid(exe_q, APP_NAME)
+    grid = cfg / "grid"
+    grid_icon = make_artwork(grid, appid)
+    chosen_icon = str(grid_icon) if grid_icon.exists() else (str(icon) if icon else "")
     entry = {
         "appid": (T_INT, _signed(appid)),
         "AppName": (T_STR, APP_NAME),
         "Exe": (T_STR, exe_q),
         "StartDir": (T_STR, f'"{exe.parent}"'),
-        "icon": (T_STR, str(icon) if icon else ""),
+        "icon": (T_STR, chosen_icon),
         "ShortcutPath": (T_STR, ""),
         "LaunchOptions": (T_STR, ""),
         "IsHidden": (T_INT, 0),
@@ -276,16 +316,22 @@ def add_shortcut(user: Path, exe: Path, icon: Path | None) -> tuple[int, bool]:
         "FlatpakAppID": (T_STR, ""),
         "tags": {},
     }
-    key = _find(entries, exe_q)
-    added = key is None
-    if added:
-        key = str(max([int(k) for k in entries if k.isdigit()], default=-1) + 1)
-    else:  # keep user-set fields like LastPlayTime / tags
-        old = entries[key]
+    matches = _find_all(entries, exe_q)
+    added = not matches
+    if matches:
+        old = entries[matches[0]]
         for keep in ("LastPlayTime", "tags", "LaunchOptions", "IsHidden"):
             if keep in old:
                 entry[keep] = old[keep]
-    entries[key] = entry
+        # Drop any stale duplicate entries and renumber cleanly
+        keep_key = matches[0]
+        for dup in matches[1:]:
+            entries.pop(dup, None)
+        entries[keep_key] = entry
+        root["shortcuts"] = {str(i): v for i, v in enumerate(entries.values())}
+    else:
+        key = str(max([int(k) for k in entries if k.isdigit()], default=-1) + 1)
+        entries[key] = entry
     if vdf.exists():
         shutil.copy2(vdf, vdf.with_name("shortcuts.vdf.mewdeck-bak"))
     tmp = vdf.with_name("shortcuts.vdf.tmp")
@@ -301,15 +347,21 @@ def remove_shortcut(user: Path, exe: Path) -> bool:
         return False
     root = vdf_load(vdf.read_bytes())
     entries = _entries(root)
-    key = _find(entries, f'"{exe}"')
-    if key is None:
+    matches = _find_all(entries, f'"{exe}"')
+    if not matches:
         return False
-    vals = [v for k, v in entries.items() if k != key]
+    match_set = set(matches)
+    removed_ids = {shortcut_appid(f'"{exe}"', APP_NAME)}
+    for k in matches:
+        v = entries[k].get("appid")
+        if v and isinstance(v, tuple):
+            removed_ids.add(v[1] & 0xFFFFFFFF)
+    vals = [v for k, v in entries.items() if k not in match_set]
     root["shortcuts"] = {str(i): v for i, v in enumerate(vals)}
     vdf.write_bytes(vdf_dump(root))
-    appid = shortcut_appid(f'"{exe}"', APP_NAME)
-    for suffix in ("p.png", ".png", "_hero.png", "_logo.png", "_icon.png"):
-        (user / "config/grid" / f"{appid}{suffix}").unlink(missing_ok=True)
+    for appid in removed_ids:
+        for suffix in ("p.png", ".png", "_hero.png", "_logo.png", "_logo.json", "_icon.png"):
+            (user / "config/grid" / f"{appid}{suffix}").unlink(missing_ok=True)
     return True
 
 
@@ -340,8 +392,7 @@ def main() -> int:
         try:
             if args.action == "install":
                 appid, added = add_shortcut(u, exe, args.icon)
-                make_artwork(u / "config/grid", appid)
-                print(f"  {'Added' if added else 'Updated'} MewDeck in Steam library of account {u.name}")
+                print(f"  {'Added' if added else 'Updated'} MewDeck (AppID {appid}) + grid artwork for Steam account {u.name}")
             else:
                 print(f"  {'Removed' if remove_shortcut(u, exe) else 'Not found'} for account {u.name}")
         except Exception as e:  # noqa: BLE001

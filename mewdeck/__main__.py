@@ -16,13 +16,15 @@ def main() -> None:
                     help="print display/controller info, then show live pad input for 20 s")
     ap.add_argument("--reset-steven", type=Path, metavar="SAV",
                     help="headless: back up SAV, reset the Steven penalty, exit")
+    ap.add_argument("--heal-all", type=Path, metavar="SAV",
+                    help="headless: back up SAV, heal all active cats (HP, injuries, scars), exit")
     args = ap.parse_args()
 
     if args.diag:
         diag()
         return
 
-    if args.list or args.reset_steven:
+    if args.list or args.reset_steven or args.heal_all:
         from . import savefile as sf
 
         if args.list:
@@ -31,13 +33,21 @@ def main() -> None:
                 print(("  [x] " if r.is_dir() else "  [ ] ") + str(r))
             for p in sf.find_saves():
                 snap = sf.snapshot(p)
+                inj = sum(1 for c in snap.parsed["cats"] if c["injured"] or c["wounded"])
                 print(f"{p}\n    day={snap.parsed['basic']['current_day']} cats={snap.parsed['total_cats']} "
-                      f"steven_penalty={snap.steven.penalty} strikes={snap.steven.strikes}")
+                      f"injured={inj} steven_penalty={snap.steven.penalty} strikes={snap.steven.strikes} "
+                      f"dejavu={snap.steven.dejavu_cats}")
         if args.reset_steven:
             backup = sf.apply_changes(args.reset_steven, sf.Changes(steven="cap"), reason="steven-reset")
             st = sf.snapshot(args.reset_steven).steven
-            print(f"backup: {backup}\nsavescumlocation={st.penalty} strikes={st.strikes}")
+            print(f"backup: {backup}\nsavescumlocation={st.penalty} strikes={st.strikes} dejavu={st.dejavu_cats}")
             sys.exit(0 if not st.active else 1)
+        if args.heal_all:
+            backup = sf.apply_changes(args.heal_all, sf.Changes(heal_all=True), reason="heal-all")
+            snap = sf.snapshot(args.heal_all)
+            inj = sum(1 for c in snap.parsed["cats"] if c["injured"] or c["wounded"])
+            print(f"backup: {backup}\nhealed {snap.parsed['total_cats']} active cats (remaining injured={inj})")
+            sys.exit(0 if inj == 0 else 1)
         return
 
     from .ui import App

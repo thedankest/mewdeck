@@ -160,6 +160,46 @@ def test_real_save_bad_edit_is_refused():
     assert p.read_bytes() == before
 
 
+def test_real_save_full_editors_and_heal_all():
+    from mewdeck import gamedata as gd
+    p = _real()
+    if not p:
+        return
+    snap = sf.snapshot(p)
+    assert len(snap.parsed["_debug"]["parse_errors"]) == 0
+    dead_cat = snap.parsed["graveyard"][0]
+    adv_cat = next(c for c in snap.parsed["cats"] if c["room"] == "(ADVENTURE)")
+    ch = sf.Changes(
+        props={"house_gold": 9999, "adventure_coins": 555, "blank_collars": 7},
+        cats={
+            adv_cat["key"]: {
+                "stats": {k: 7 for k in adv_cat["stats"]},
+                "class": "Mage",
+                "abilities": {
+                    "active": ["DefaultMove", "BasicMagicShortRanged", "FireShot", "FreezeRay", "MageSwap", "Dash2"],
+                    "passive": ["BloodLust", "Overload"],
+                    "passive_tiers": [2, 2],
+                    "disorder": [None, None],
+                },
+                "mutations": {"coat": 300, "body": 301, "eyeL": 300, "eyeR": 300},
+                "equipment": {"head": "ScrapHat", "weapon": "GlassShard", "trinket": "RatTail"},
+            },
+            dead_cat["key"]: {"revive": True},
+        },
+        inv_add={"storage": ["ScrapHat"], "backpack": ["FoodBig"], "trash": []},
+        furn_add=[next(iter(gd.furniture()))],
+        heal_all=True,
+        steven="cap",
+    )
+    sf.apply_changes(p, ch, reason="full-test")
+    s2 = sf.snapshot(p)
+    assert not any(c["injured"] or c["wounded"] for c in s2.parsed["cats"])
+    assert s2.steven.penalty == 0 and s2.steven.dejavu_cats == 0
+    assert s2.parsed["all_cats"][dead_cat["key"]]["room"] == "Attic"
+    assert s2.parsed["all_cats"][adv_cat["key"]]["abilities"]["passive_tiers"] == [2, 2]
+    assert s2.parsed["all_cats"][adv_cat["key"]]["equipment"]["trinket"]["item_id"] == "RatTail"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

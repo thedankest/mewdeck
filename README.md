@@ -13,52 +13,30 @@ no copying files around, and it backs the save up before every write.
 
 ---
 
-## Install on the Ally (Bazzite), once
+## One-click install on the Ally (Bazzite)
 
-Do this in **Desktop Mode** (Steam menu → Power → Switch to Desktop).
+Do this in **Desktop Mode** (Steam menu → Power → Switch to Desktop):
 
-**1. Get the code.** The repo is private, so use one of these:
+### Option 1: One-click installer wizard (no ZIP extraction)
+1. Download **`MewDeck-Installer.run`** from this repo (or Releases).
+2. Double-click **`MewDeck-Installer.run`** (if Firefox doesn't mark it executable, right-click → *Properties* → *Permissions* → *Is Executable*, or run `bash ~/Downloads/MewDeck-Installer.run --gui` in Konsole).
+3. Click **Install / Update** in the KDE wizard — it installs MewDeck, sets up `pygame-ce`, creates the desktop entry, and **adds MewDeck to Steam automatically with full capsule, banner, hero, logo & icon artwork**.
+4. Switch back to **Game Mode** and launch **MewDeck** under *Non-Steam*.
 
-- **Browser (easiest):** open this repo on github.com in Firefox, sign in, then **Code → Download ZIP**.
-  Extract it into your home folder, for example `~/mewdeck`.
-- **Terminal (Konsole):**
-  ```bash
-  brew install gh            # Bazzite ships Homebrew
-  gh auth login              # pick GitHub.com → HTTPS → login with a web browser
-  gh repo clone thedankest/mewdeck ~/mewdeck
-  ```
-
-**2. Install.** Run this in Konsole:
-
+### Option 2: From git (for updates)
 ```bash
-cd ~/mewdeck
-./install.sh
+gh repo clone thedankest/mewdeck ~/mewdeck
+cd ~/mewdeck && ./install.sh          # or ./install.sh --gui
 ```
 
-That's it. The installer:
-
-- builds a private Python environment with `pygame-ce` (needs internet the first time),
-- adds a **MewDeck** entry with an icon to the app menu,
-- **adds MewDeck to Steam automatically**, for every Steam account on the device, along with library artwork
-  (capsule, banner, hero, logo, icon). Steam rewrites its shortcut list when it exits, so the installer
-  **closes Steam, writes the shortcut, and restarts Steam**. Running it again updates the entry instead of adding a duplicate.
-
-**3.** Switch back to **Game Mode**. MewDeck is in your library under *Non-Steam*. Launch it like a game.
-The default "Gamepad" controller layout is all it needs.
-
-> If the automatic step ever fails, the installer says so. You can then add it by hand: Steam (Desktop Mode) →
-> **Games → Add a Non-Steam Game to My Library…** → tick **MewDeck**.
-
-### Uninstall
-
+Update later:
 ```bash
-cd ~/mewdeck && ./uninstall.sh    # removes the Steam shortcut + artwork, app menu entry, app; keeps backups
+cd ~/mewdeck && git pull && ./install.sh
 ```
 
-### Update later
-
+Uninstall:
 ```bash
-cd ~/mewdeck && git pull && ./install.sh     # or download the ZIP again and re-run ./install.sh
+cd ~/mewdeck && ./uninstall.sh        # removes Steam shortcut + artwork & app; keeps backups
 ```
 
 ### Launch without Steam
@@ -97,11 +75,13 @@ Touch works too: tap to select, tap again to open. A keyboard also works: arrows
 
 | | |
 |---|---|
-| **Steven / save-scum reset** | One press: `savescumlocation = 0` (it shows where the penalty was armed: battle, house boss, event), strike rows capped to 1. There's also *wipe all strikes* and **Close game → reset → relaunch** |
-| **Auto-block Steven** | Optional toggle. Adds two SQLite `BEFORE INSERT/UPDATE … RAISE(IGNORE)` triggers to the save, so the game's own write that arms the penalty is silently dropped and every other write goes through. Turn it off any time. Steam Cloud restoring an older copy removes it, so check that it still shows **ON** |
-| **Gold & food** | ◀ ▶ ±10 (hold for ±100 / ±1000), X = 99,999 |
-| **Cats** | Base stats 1–7 (5 is the game's baseline, so bars are coloured red→green), level, age, sex, retired. Filters: House, Adventure, Retired, Gone |
-| **Items** | 1,000+ items by slot, queued into storage |
+| **Steven / save-scum reset** | One press: `savescumlocation = 0`, strike rows capped or wiped, and strips **Déjà Vu** disorder from adventure cats. Includes **Close game → reset → relaunch** |
+| **Auto-block Steven** | Optional SQLite `BEFORE INSERT/UPDATE … RAISE(IGNORE)` guard so the penalty can never arm again |
+| **Heal all active cats** | One press on Home (or `--heal-all`): restores full HP and cures injuries, stat penalties, and visual scars across all house + adventure cats |
+| **Home & Adventure resources** | Separate editors for Home Gold/Food, Adventure Coins/Food, Blank Collars, Day, Storage Upgrades, Furniture Boxes, Min Strays, and Completion % |
+| **Cats (Home, Adventure & Graveyard)** | Separate House & Adventure party filters + Graveyard **Revive → Attic**. Edit base stats (1–7), Class (14 classes), Level, Age, Sex, Retired, **Active Abilities (6 slots)**, **Passives (2 slots + Tier 1/2 `+`)**, **Disorders (2 slots)**, **Mutations & Coat Texture (14 body parts + L↔R mirror)**, and **Equipped Gear (5 slots)** — all with unobfuscated English names & descriptions |
+| **Items (Home Storage, Adventure Backpack & Trash)** | 1,021 items with unobfuscated descriptions, stat bonuses, durability, cursed flags, and **101 Armor Set Bonuses**. Browse owned items or add/remove separately for Home Storage, Adventure Backpack, and Trash |
+| **Furniture & Rooms** | View Unplaced Storage and placed rooms with live Comfort/Stimulation/Health/Appeal/Evolution totals, plus add/remove from 633 furniture items |
 | **Backups** | Automatic before every save. The very first backup (*pristine*) is never deleted. Restore from the Backups tab |
 
 ### Safety
@@ -133,9 +113,8 @@ MEWDECK_TEST_SAVE=/path/to/steamcampaign01.sav python3 tests/test_savefile.py   
 
 ## Credits / license
 
-- Save parsing and cat/item writing come from
-  [accessiblefish/mewgenics-save-editor](https://github.com/accessiblefish/mewgenics-save-editor) (AGPL-3.0),
-  vendored at `mewdeck/vendor/mewparser.py`, along with its item list.
+- Save LZ4 codec & ability/passive/disorder text: [accessiblefish/mewgenics-save-editor](https://github.com/accessiblefish/mewgenics-save-editor) (AGPL-3.0).
+- Item descriptions, set bonuses, mutation/furniture/injury databases & binary layout reference: [michael-trinity/mewgenics-savegame-editor](https://github.com/michael-trinity/mewgenics-savegame-editor) (MIT).
 - The Steven reset follows [TaliesinYang/mewgenics-bye-bye-steven](https://github.com/TaliesinYang/mewgenics-bye-bye-steven).
 - Proton save paths: [Yggdraszil/mewgenics_patcher](https://github.com/Yggdraszil/mewgenics_patcher).
 - UI ideas (stat baseline colours, pristine backup) came from [mewgenicseditor.com](https://mewgenicseditor.com/) and

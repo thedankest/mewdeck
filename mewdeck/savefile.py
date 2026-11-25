@@ -1,9 +1,8 @@
-"""Save discovery, safe in-place writes, backups and the Steven (anti-save-scum) reset.
+"""Save discovery, safe in-place writes, backups, full deterministic editing and Steven reset.
 
-The Mewgenics .sav is a SQLite database. Cat/inventory blob editing is delegated to
-the vendored parser from accessiblefish/mewgenics-save-editor (AGPL-3.0); the Steven
-reset follows TaliesinYang/mewgenics-bye-bye-steven (properties.savescumlocation=0,
-NPCRSTRACKER_steven_savescum_* strike rows capped or cleared).
+The Mewgenics .sav is a SQLite database. Cat, inventory, furniture, and house_state binary
+parsing/patching uses our deterministic `catblob` codec (verified 300/300 cats & 44/44
+furniture byte-for-byte), with LZ4 compression from vendored `mewparser.py`.
 """
 
 from __future__ import annotations
@@ -16,12 +15,12 @@ import signal
 import sqlite3
 import struct
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+from . import catblob as cb
 from .vendor import mewparser
 
 APP_ID = "686060"
@@ -31,9 +30,22 @@ BACKUP_ROOT = Path(os.environ.get("MEWDECK_BACKUP_DIR", DATA_HOME / "backups"))
 MAX_BACKUPS_PER_SAVE = 40
 
 STRIKE_PREFIX = "NPCRSTRACKER_steven_savescum_"
-# savescumlocation enum (from the game's types): where the scum-able state was armed
 SCUM_LOCATIONS = {1: "battle", 2: "house boss", 3: "event", 4: "other"}
 GUARD_TRIGGERS = ("mewdeck_block_savescum_insert", "mewdeck_block_savescum_update")
+
+BASIC_PROP_KEYS = (
+    "current_day",
+    "house_gold",
+    "house_food",
+    "save_file_percent",
+    "blank_collars",
+    "house_storage_upgrades",
+    "min_strays_tomorrow",
+    "on_adventure",
+    "adventure_coins",
+    "adventure_food",
+    "adventure_furniture_boxes",
+)
 
 
 # --------------------------------------------------------------------------- discovery
@@ -62,7 +74,6 @@ def _library_dirs() -> list[Path]:
             continue
         for m in re.finditer(r'"path"\s+"([^"]+)"', text):
             libs.append(Path(m.group(1).replace("\\\\", "\\")))
-    # SD cards / external drives on SteamOS-likes (Bazzite mounts under /run/media)
     for pattern in ("/run/media/*/*", "/run/media/*", "/media/*"):
         import glob
 
@@ -79,7 +90,6 @@ def candidate_save_roots() -> list[Path]:
         roots.append(Path(env).expanduser())
     for lib in _library_dirs():
         roots.append(lib / "steamapps/compatdata" / APP_ID / PREFIX_SAVE_REL)
-    # Native Windows path, handy when testing under Wine directly
     appdata = os.environ.get("APPDATA")
     if appdata:
         roots.append(Path(appdata) / "Glaiel Games/Mewgenics")
@@ -98,8 +108,7 @@ def find_saves() -> list[Path]:
     for root in candidate_save_roots():
         if not root.is_dir():
             continue
-        globs = ["*.sav", "saves/*.sav", "*/saves/*.sav"]
-        for g in globs:
+        for g in ("*.sav", "saves/*.sav", "*/saves/*.sav"):
             for p in root.glob(g):
                 if not p.is_file() or "backup" in p.name.lower():
                     continue
@@ -111,7 +120,6 @@ def find_saves() -> list[Path]:
 
 
 def save_label(path: Path) -> str:
-    """e.g. 'steamcampaign01  (7656119…1234)'"""
     parent = path.parent
     owner = parent.parent.name if parent.name == "saves" else parent.name
     if owner.isdigit() and len(owner) > 8:
@@ -122,7 +130,6 @@ def save_label(path: Path) -> str:
 # --------------------------------------------------------------------------- game process
 
 def game_pids() -> list[int]:
-    """PIDs whose command line mentions Mewgenics.exe (the Proton/Wine game process)."""
     me = os.getpid()
     pids: list[int] = []
     proc = Path("/proc")
@@ -154,7 +161,7 @@ def close_game(timeout: float = 12.0) -> bool:
         end = time.time() + (timeout if sig == signal.SIGTERM else 4)
         while time.time() < end:
             if not game_pids():
-                time.sleep(1.0)  # let wine flush/close file handles
+                time.sleep(1.0)
                 return True
             time.sleep(0.25)
     return not game_pids()
@@ -196,7 +203,6 @@ def _decode_int(raw: Any) -> int | None:
 
 
 def _encode_like(old: Any, value: int) -> Any:
-    """Encode `value` with the same storage type the game used for this property."""
     if isinstance(old, (int, float)) or old is None:
         return int(value)
     if isinstance(old, str):
@@ -222,18 +228,20 @@ def get_prop(conn: sqlite3.Connection, key: str) -> int | None:
 def set_prop(conn: sqlite3.Connection, key: str, value: int) -> bool:
     row = conn.execute("SELECT data FROM properties WHERE key = ?", (key,)).fetchone()
     if row is None:
-        return False
+        conn.execute("INSERT INTO properties (key, data) VALUES (?, ?)", (key, int(value)))
+        return True
     conn.execute("UPDATE properties SET data = ? WHERE key = ?", (_encode_like(row[0], value), key))
     return True
 
 
 @dataclass
 class StevenStatus:
-    penalty: int  # savescumlocation (non-zero = Steven penalty armed)
-    strikes: int  # NPCRSTRACKER_steven_savescum_* rows (which Steven scenes have played)
+    penalty: int
+    strikes: int
     met: bool
     on_adventure: bool
-    guarded: bool = False  # MewDeck's auto-block triggers are installed
+    guarded: bool = False
+    dejavu_cats: int = 0
 
     @property
     def where(self) -> str:
@@ -244,7 +252,7 @@ class StevenStatus:
         return self.penalty != 0
 
 
-def steven_status(conn: sqlite3.Connection) -> StevenStatus:
+def steven_status(conn: sqlite3.Connection, dejavu_cats: int = 0) -> StevenStatus:
     strikes = conn.execute(
         "SELECT COUNT(*) FROM properties WHERE key LIKE ? ESCAPE '\\'",
         (STRIKE_PREFIX.replace("_", "\\_") + "%",),
@@ -255,6 +263,7 @@ def steven_status(conn: sqlite3.Connection) -> StevenStatus:
         met=(get_prop(conn, "PlotFlag_StevenMet") or 0) == 1,
         on_adventure=(get_prop(conn, "on_adventure") or 0) == 1,
         guarded=is_guarded(conn),
+        dejavu_cats=dejavu_cats,
     )
 
 
@@ -264,9 +273,6 @@ def is_guarded(conn: sqlite3.Connection) -> bool:
 
 
 def set_guard(conn: sqlite3.Connection, on: bool) -> None:
-    """Auto-block Steven: the game writes the flag with INSERT OR REPLACE when a scum-able state starts.
-    BEFORE triggers with RAISE(IGNORE) silently drop any non-zero write, so the penalty can never arm.
-    (RAISE(ABORT) would fail the game's own save transaction, so IGNORE it is.)"""
     for t in GUARD_TRIGGERS:
         conn.execute(f"DROP TRIGGER IF EXISTS {t}")
     if not on:
@@ -279,7 +285,8 @@ def set_guard(conn: sqlite3.Connection, on: bool) -> None:
 
 
 def reset_steven(conn: sqlite3.Connection, mode: str = "cap") -> None:
-    """mode: 'cap' keeps only the first strike record (Bye Bye Steven default), 'clear' removes all."""
+    """mode: 'cap' keeps only the first strike record, 'clear' removes all.
+    Also clears DejaVu disorder from active adventure cats."""
     set_prop(conn, "savescumlocation", 0)
     like = STRIKE_PREFIX.replace("_", "\\_") + "%"
     if mode == "clear":
@@ -290,6 +297,23 @@ def reset_steven(conn: sqlite3.Connection, mode: str = "cap") -> None:
                    SELECT key FROM properties WHERE key LIKE ?1 ESCAPE '\\' ORDER BY key ASC LIMIT 1)""",
             (like,),
         )
+    # Also strip DejaVu disorder from active cats (Steven's save-scum debuff)
+    adv_row = conn.execute("SELECT data FROM files WHERE key='adventure_state'").fetchone()
+    adv_keys = mewparser.parse_adventure_state(mewparser.to_bytes(adv_row[0])) if adv_row and adv_row[0] else []
+    current_day = get_prop(conn, "current_day") or 0
+    for ck in adv_keys:
+        row = conn.execute("SELECT data FROM cats WHERE key=?", (ck,)).fetchone()
+        if not row or not row[0]:
+            continue
+        try:
+            parsed = cb.parse_cat_blob(mewparser.to_bytes(row[0]), ck, "(ADVENTURE)", current_day)
+        except Exception:
+            continue
+        dis = list(parsed["abilities"]["disorder"])
+        if any(d == "DejaVu" for d in dis):
+            new_dis = [None if d == "DejaVu" else d for d in dis]
+            patched = cb.patch_cat_blob(mewparser.to_bytes(row[0]), {"abilities": {"disorder": new_dis}}, current_day)
+            conn.execute("UPDATE cats SET data=? WHERE key=?", (sqlite3.Binary(patched), ck))
 
 
 # --------------------------------------------------------------------------- raw IO
@@ -305,7 +329,6 @@ def _checkpoint_wal(path: Path) -> None:
 
 
 def read_bytes(path: Path) -> tuple[bytes, bool]:
-    """Consistent snapshot of the DB (including any WAL contents). Returns (bytes, was_wal)."""
     try:
         src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         mem = sqlite3.connect(":memory:")
@@ -316,7 +339,7 @@ def read_bytes(path: Path) -> tuple[bytes, bool]:
     except sqlite3.Error:
         data = bytearray(path.read_bytes())
     was_wal = len(data) > 19 and (data[18] == 2 or data[19] == 2)
-    if was_wal:  # in-memory DBs can't be WAL; normalise to rollback-journal header
+    if was_wal:
         data[18] = data[19] = 1
     return bytes(data), was_wal
 
@@ -330,6 +353,100 @@ def open_memory(data: bytes) -> sqlite3.Connection:
 def load(path: Path) -> sqlite3.Connection:
     data, _ = read_bytes(path)
     return open_memory(data)
+
+
+# --------------------------------------------------------------------------- full save parser
+
+def parse_save(data: bytes) -> dict[str, Any]:
+    """Deterministic full parse of a Mewgenics .sav database."""
+    conn = open_memory(data)
+    try:
+        basic: dict[str, int] = {k: 0 for k in BASIC_PROP_KEYS}
+        for k in BASIC_PROP_KEYS:
+            v = get_prop(conn, k)
+            if v is not None:
+                basic[k] = v
+        basic["save_percent"] = basic["save_file_percent"]
+        current_day = basic["current_day"]
+
+        hs_row = conn.execute("SELECT data FROM files WHERE key='house_state'").fetchone()
+        house_entries = cb.parse_house_state_full(hs_row[0]) if hs_row and hs_row[0] else []
+        house_map = {e["key"]: e["room"] for e in house_entries}
+
+        adv_row = conn.execute("SELECT data FROM files WHERE key='adventure_state'").fetchone()
+        adv_keys = mewparser.parse_adventure_state(mewparser.to_bytes(adv_row[0])) if adv_row and adv_row[0] else []
+        adv_set = set(adv_keys)
+
+        active_cats: list[dict[str, Any]] = []
+        graveyard_cats: list[dict[str, Any]] = []
+        all_cats_by_key: dict[int, dict[str, Any]] = {}
+        parse_errors: list[str] = []
+
+        for key, raw_blob in conn.execute("SELECT key, data FROM cats ORDER BY key"):
+            if raw_blob is None:
+                continue
+            if key in adv_set:
+                room = "(ADVENTURE)"
+            elif key in house_map:
+                room = house_map[key]
+            else:
+                room = ""
+            try:
+                cat = cb.parse_cat_blob(mewparser.to_bytes(raw_blob), key, room, current_day)
+            except Exception as e:
+                parse_errors.append(f"Cat {key}: {e}")
+                continue
+            all_cats_by_key[key] = cat
+            if room:
+                active_cats.append(cat)
+            elif cat["dead"]:
+                graveyard_cats.append(cat)
+
+        # Inventories (exact round-trip)
+        items_data: dict[str, list[dict[str, Any]]] = {"storage": [], "backpack": [], "trash": []}
+        for file_key, grp in (("inventory_storage", "storage"),
+                              ("inventory_backpack", "backpack"),
+                              ("inventory_trash", "trash")):
+            row = conn.execute("SELECT data FROM files WHERE key=?", (file_key,)).fetchone()
+            if row and row[0] is not None:
+                items_data[grp] = cb.parse_inventory_blob(row[0])
+
+        # Furniture (exact 44/44 round-trip)
+        furn_placed: list[dict[str, Any]] = []
+        furn_unplaced: list[dict[str, Any]] = []
+        try:
+            for fkey, fblob in conn.execute("SELECT key, data FROM furniture ORDER BY key"):
+                if not fblob:
+                    continue
+                try:
+                    f = cb.parse_furniture_row(fkey, fblob)
+                except Exception:
+                    continue
+                if f["room"]:
+                    furn_placed.append(f)
+                else:
+                    furn_unplaced.append(f)
+        except sqlite3.Error:
+            pass
+
+        rooms = sorted({e["room"] for e in house_entries if e["room"]}
+                       | {f["room"] for f in furn_placed if f["room"]})
+
+        return {
+            "basic": basic,
+            "cats": active_cats,
+            "graveyard": graveyard_cats,
+            "all_cats": all_cats_by_key,
+            "items": items_data,
+            "furniture": {"placed": furn_placed, "unplaced": furn_unplaced},
+            "rooms": rooms,
+            "total_cats": len(active_cats),
+            "total_graveyard": len(graveyard_cats),
+            "total_furniture": len(furn_placed) + len(furn_unplaced),
+            "_debug": {"parse_errors": parse_errors},
+        }
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------------- backups
@@ -355,7 +472,7 @@ def create_backup(save: Path, reason: str = "manual") -> Path:
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     reason = re.sub(r"[^a-z0-9-]+", "-", reason.lower()).strip("-") or "backup"
     if not any(d.glob("*.sav")):
-        reason = "pristine"  # the very first backup is kept forever (never rotated out)
+        reason = "pristine"
     dest = d / f"{stamp}__{reason}.sav"
     data, _ = read_bytes(save)
     dest.write_bytes(data)
@@ -421,18 +538,67 @@ def _write_atomic(save: Path, data: bytes, was_wal: bool) -> None:
 
 @dataclass
 class Changes:
-    props: dict[str, int] = field(default_factory=dict)  # e.g. house_gold, house_food
-    cats: dict[int, dict[str, Any]] = field(default_factory=dict)  # upstream cat change dicts (incl. _offsets)
-    add_items: list[str] = field(default_factory=list)  # item ids → storage
-    steven: str | None = None  # None | 'cap' | 'clear'
-    guard: bool | None = None  # install / remove the auto-block triggers
+    props: dict[str, int] = field(default_factory=dict)
+    cats: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # Inventory edits per container: 'storage' | 'backpack' | 'trash'
+    inv_add: dict[str, list[str]] = field(default_factory=lambda: {"storage": [], "backpack": [], "trash": []})
+    inv_remove: dict[str, list[int]] = field(default_factory=lambda: {"storage": [], "backpack": [], "trash": []})
+    # Furniture edits: add furniture_id to unplaced storage; remove by SQLite row key
+    furn_add: list[str] = field(default_factory=list)
+    furn_remove: list[int] = field(default_factory=list)
+    heal_all: bool = False
+    steven: str | None = None
+    guard: bool | None = None
+    add_items: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.add_items:
+            self.inv_add["storage"].extend(self.add_items)
+            self.add_items = None
+
+    def inv_total(self) -> int:
+        return sum(len(v) for v in self.inv_add.values()) + sum(len(v) for v in self.inv_remove.values())
 
     def empty(self) -> bool:
-        return not (self.props or self.cats or self.add_items or self.steven or self.guard is not None)
+        return not (
+            self.props or self.cats or self.inv_total() or self.furn_add or self.furn_remove
+            or self.heal_all or self.steven or self.guard is not None
+        )
 
     def count(self) -> int:
-        return (len(self.props) + len(self.cats) + len(self.add_items) + (1 if self.steven else 0)
-                + (1 if self.guard is not None else 0))
+        return (
+            len(self.props)
+            + len(self.cats)
+            + self.inv_total()
+            + len(self.furn_add)
+            + len(self.furn_remove)
+            + (1 if self.heal_all else 0)
+            + (1 if self.steven else 0)
+            + (1 if self.guard is not None else 0)
+        )
+
+
+def _max_seq_id(conn: sqlite3.Connection) -> int:
+    mx = 999
+    for (blob,) in conn.execute("SELECT data FROM files WHERE key LIKE 'inventory_%'"):
+        if blob:
+            for it in cb.parse_inventory_blob(blob):
+                mx = max(mx, int(it["instance_id"]))
+    return mx
+
+
+def _default_item_charges(item_id: str) -> int:
+    from . import gamedata as gd
+
+    info = gd.item_info(item_id)
+    if info.get("consumable"):
+        return 1
+    dur = str(info.get("durability") or "")
+    if dur:
+        m = re.search(r"\d+", dur)
+        if m:
+            return int(m.group(0))
+    return -1
 
 
 def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path:
@@ -441,73 +607,186 @@ def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path
         raise GameRunningError("Mewgenics is running - close it first or the game will overwrite your edits")
     backup = create_backup(save, f"before-{reason}")
     data, was_wal = read_bytes(save)
-    before = mewparser.parse_save_file(data)
-
-    if changes.cats or changes.add_items:
-        with tempfile.TemporaryDirectory(prefix="mewdeck-") as td:
-            out = Path(td) / "stage.sav"
-            item_changes = {"storage": {"added": [{"item_id": i} for i in changes.add_items], "removed": []}} if changes.add_items else {}
-            mewparser.modify_save_file(data, {}, dict(changes.cats), None, item_changes, str(out))
-            data = out.read_bytes()
+    before = parse_save(data)
 
     conn = open_memory(data)
-    for key, value in changes.props.items():
-        set_prop(conn, key, int(value))
-    if changes.guard is not None:
-        set_guard(conn, False)  # drop first so the reset below isn't affected either way
-    if changes.steven:
-        reset_steven(conn, changes.steven)
-    if changes.guard:
-        set_guard(conn, True)
-    conn.commit()
-    data = conn.serialize()
-    conn.close()
+    try:
+        # 1. Properties
+        for key, value in changes.props.items():
+            prop_key = "save_file_percent" if key == "save_percent" else key
+            set_prop(conn, prop_key, int(value))
+        current_day = get_prop(conn, "current_day") or before["basic"]["current_day"]
 
-    after = mewparser.parse_save_file(data)  # must still parse
+        # 2. Cat edits (including heal_all and revive)
+        cat_edits: dict[int, dict[str, Any]] = {k: dict(v) for k, v in changes.cats.items()}
+        if changes.heal_all:
+            for c in before["cats"]:
+                cat_edits.setdefault(c["key"], {})["heal"] = True
+
+        next_seq = _max_seq_id(conn) + 1
+        revived_keys: list[int] = []
+        for cat_key, ch in cat_edits.items():
+            row = conn.execute("SELECT data FROM cats WHERE key=?", (cat_key,)).fetchone()
+            if not row or row[0] is None:
+                continue
+            new_blob = cb.patch_cat_blob(mewparser.to_bytes(row[0]), ch, current_day, next_seq_id=next_seq)
+            next_seq += 8
+            conn.execute("UPDATE cats SET data=? WHERE key=?", (sqlite3.Binary(new_blob), cat_key))
+            if ch.get("revive"):
+                revived_keys.append(cat_key)
+
+        # Add revived cats back into house_state (Attic)
+        if revived_keys:
+            hs_row = conn.execute("SELECT data FROM files WHERE key='house_state'").fetchone()
+            entries = cb.parse_house_state_full(hs_row[0]) if hs_row and hs_row[0] else []
+            existing = {e["key"] for e in entries}
+            for rk in revived_keys:
+                if rk not in existing:
+                    entries.append({"key": rk, "unk": 0, "room": "Attic", "pos": (0.0, 0.0, 0.0)})
+            conn.execute("UPDATE files SET data=? WHERE key='house_state'",
+                         (sqlite3.Binary(cb.serialize_house_state_full(entries)),))
+
+        # 3. Inventory edits (storage, backpack, trash)
+        file_map = {"storage": "inventory_storage", "backpack": "inventory_backpack", "trash": "inventory_trash"}
+        for grp, file_key in file_map.items():
+            adds = changes.inv_add.get(grp, [])
+            rems = set(changes.inv_remove.get(grp, []))
+            if not adds and not rems:
+                continue
+            row = conn.execute("SELECT data FROM files WHERE key=?", (file_key,)).fetchone()
+            items = cb.parse_inventory_blob(row[0]) if row and row[0] is not None else []
+            if rems:
+                items = [it for it in items if int(it["instance_id"]) not in rems]
+            for iid in adds:
+                items.append({
+                    "item_id": iid,
+                    "instance_id": next_seq,
+                    "extra_id": "",
+                    "field_a": _default_item_charges(iid),
+                    "field_b": 0,
+                    "field_c": 0,
+                    "marker": 5,
+                    "state": 1,
+                    "sentinel": 0xFF,
+                    "flags": 0,
+                })
+                next_seq += 1
+            blob_out = sqlite3.Binary(cb.serialize_inventory_blob(items))
+            if row is None:
+                conn.execute("INSERT INTO files (key, data) VALUES (?, ?)", (file_key, blob_out))
+            else:
+                conn.execute("UPDATE files SET data=? WHERE key=?", (blob_out, file_key))
+
+        # 4. Furniture edits (safe unplaced additions + key removals)
+        if changes.furn_remove:
+            for fk in changes.furn_remove:
+                conn.execute("DELETE FROM furniture WHERE key=?", (int(fk),))
+        if changes.furn_add:
+            max_key = conn.execute("SELECT COALESCE(MAX(key), 0) FROM furniture").fetchone()[0]
+            max_z = max([f["z"] for f in before["furniture"]["unplaced"]], default=0)
+            for fid in changes.furn_add:
+                max_key += 1
+                max_z += 1
+                blob = cb.serialize_furniture_row({
+                    "furniture_id": fid,
+                    "room": "",
+                    "x": 0,
+                    "y": 0,
+                    "z": max_z,
+                    "flag1": 0,
+                    "flag2": 0,
+                })
+                conn.execute("INSERT INTO furniture (key, data) VALUES (?, ?)", (max_key, sqlite3.Binary(blob)))
+
+        # 5. Steven reset & auto-block guard
+        if changes.guard is not None:
+            set_guard(conn, False)
+        if changes.steven:
+            reset_steven(conn, changes.steven)
+        if changes.guard:
+            set_guard(conn, True)
+
+        conn.commit()
+        data = conn.serialize()
+    finally:
+        conn.close()
+
+    after = parse_save(data)
     verify(before, after, changes)
     _write_atomic(save, data, was_wal)
     return backup
 
 
-VERIFIED_CAT_FIELDS = ("stats", "level", "age", "sex", "retired")
-
-
 def verify(before: dict[str, Any], after: dict[str, Any], changes: Changes) -> None:
-    """Re-parse the edited DB and make sure every edit reads back exactly and nothing else moved."""
-    if after["total_cats"] != before["total_cats"]:
-        raise RuntimeError("verification failed: cat count changed - nothing was written")
-    b = {c["key"]: c for c in before["cats"]}
-    a = {c["key"]: c for c in after["cats"]}
-    for key, cat in b.items():
-        new = a.get(key)
+    """Re-parse the edited DB and verify every single edit read back accurately."""
+    revived = sum(1 for ch in changes.cats.values() if ch.get("revive"))
+    if after["total_cats"] != before["total_cats"] + revived:
+        raise RuntimeError("verification failed: active cat count changed unexpectedly - nothing was written")
+
+    b_all = before["all_cats"]
+    a_all = after["all_cats"]
+    for key, ch in changes.cats.items():
+        if "stats" in ch and any(not (1 <= int(v) <= 7) for v in ch["stats"].values()):
+            raise RuntimeError(f"verification failed: cat {key} base stats out of range 1..7 - nothing was written")
+        new = a_all.get(key)
         if new is None:
             raise RuntimeError(f"verification failed: cat {key} vanished - nothing was written")
-        wanted = changes.cats.get(key, {})
-        for f in VERIFIED_CAT_FIELDS + ("name",):
-            expect = wanted.get(f, cat[f])
-            if new[f] != expect:
-                raise RuntimeError(
-                    f"verification failed: {cat['name'] or key} {f} reads back {new[f]!r}, expected {expect!r}"
-                    " - nothing was written")
+        for f in ("stats", "level_bonuses", "level", "age", "sex", "retired", "class", "name"):
+            if f in ch and new[f] != ch[f]:
+                raise RuntimeError(f"verification failed: cat {key} {f} reads back {new[f]!r}, expected {ch[f]!r}")
+        if ch.get("heal") or ch.get("revive"):
+            if new["injured"] or new["wounded"]:
+                raise RuntimeError(f"verification failed: cat {key} still injured/wounded after heal")
+        if ch.get("revive") and (new["dead"] or not new["room"]):
+            raise RuntimeError(f"verification failed: cat {key} not revived cleanly")
+        if "abilities" in ch:
+            ab = ch["abilities"]
+            for fld in ("active", "passive", "passive_tiers", "disorder", "disorder_tiers"):
+                if fld in ab and new["abilities"][fld] != ab[fld]:
+                    raise RuntimeError(f"verification failed: cat {key} abilities.{fld} mismatch")
+        if "mutations" in ch:
+            for mk, mv in ch["mutations"].items():
+                if new["mutations"].get(mk) != (mv & 0xFFFFFFFF):
+                    raise RuntimeError(f"verification failed: cat {key} mutation {mk} mismatch")
+        if "equipment" in ch:
+            for sk, sv in ch["equipment"].items():
+                want_id = (sv["item_id"] if isinstance(sv, dict) else sv) if sv else None
+                got_id = new["equipment"][sk]["item_id"] if new["equipment"][sk] else None
+                if got_id != want_id:
+                    raise RuntimeError(f"verification failed: cat {key} equipment {sk} reads back {got_id!r}, expected {want_id!r}")
+
+    if changes.heal_all:
+        for c in after["cats"]:
+            if c["injured"] or c["wounded"]:
+                raise RuntimeError(f"verification failed: cat {c['name']} still injured after heal_all")
+
     for k, v in changes.props.items():
-        if after["basic"].get(k) != v:
-            raise RuntimeError(f"verification failed: {k} - nothing was written")
-    added = len(changes.add_items)
-    if len(after["items"]["storage"]) != len(before["items"]["storage"]) + added:
-        raise RuntimeError("verification failed: storage item count - nothing was written")
+        bk = "save_percent" if k == "save_file_percent" else k
+        if after["basic"].get(bk) != v:
+            raise RuntimeError(f"verification failed: property {k} mismatch")
+
+    for grp in ("storage", "backpack", "trash"):
+        exp = len(before["items"][grp]) + len(changes.inv_add.get(grp, [])) - len(set(changes.inv_remove.get(grp, [])))
+        if len(after["items"][grp]) != exp:
+            raise RuntimeError(f"verification failed: {grp} item count mismatch")
+
+    exp_f = before["total_furniture"] + len(changes.furn_add) - len(set(changes.furn_remove))
+    if after["total_furniture"] != exp_f:
+        raise RuntimeError("verification failed: furniture count mismatch")
 
 
 def cat_editable(snap: "Snapshot", cat: dict[str, Any]) -> dict[str, bool]:
-    """Which fields the vendored parser located reliably for this cat."""
-    day = snap.parsed["basic"]["current_day"]
-    sane_level = 0 <= cat["level"] <= 99 and cat["_level_offset"] >= 0
-    sane_birth = 0 <= cat["_birth_day"] <= day and cat["_birth_day_offset"] >= 0
+    """With the deterministic catblob codec, every field on every cat is safely editable."""
     return {
-        "stats": cat["_stats_offset"] >= 0,
-        "level": sane_level and sane_birth,
-        "age": sane_level and sane_birth,
+        "stats": True,
+        "level": True,
+        "age": True,
         "sex": True,
         "retired": True,
+        "class": True,
+        "abilities": True,
+        "mutations": True,
+        "equipment": True,
     }
 
 
@@ -533,20 +812,17 @@ class Snapshot:
 
 def snapshot(path: Path) -> Snapshot:
     data, _ = read_bytes(path)
-    parsed = mewparser.parse_save_file(data)
+    parsed = parse_save(data)
+    dejavu = sum(
+        1 for c in parsed["cats"]
+        if c["room"] == "(ADVENTURE)" and "DejaVu" in (c["abilities"]["disorder"] or [])
+    )
     conn = open_memory(data)
-    st = steven_status(conn)
+    st = steven_status(conn, dejavu_cats=dejavu)
     conn.close()
     return Snapshot(path=path, parsed=parsed, steven=st, mtime=path.stat().st_mtime)
 
 
 def cat_change_base(snap: Snapshot, cat: dict[str, Any]) -> dict[str, Any]:
-    """Internal offsets the vendored writer needs for a cat edit."""
-    return {
-        "_name_end": cat["_name_end"],
-        "_level_offset": cat["_level_offset"],
-        "_birth_day_offset": cat["_birth_day_offset"],
-        "_stats_offset": cat["_stats_offset"],
-        "_birth_day": cat["_birth_day"],
-        "_current_day": snap.parsed["basic"]["current_day"],
-    }
+    """No internal offsets needed with deterministic catblob patching; kept for API compatibility."""
+    return {}
