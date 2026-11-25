@@ -57,13 +57,17 @@ def draw_pair_simulator(ui, surf: pygame.Surface, box: pygame.Rect, pe: br.PairE
     for s in br.STAT_NAMES:
         va, vb = a["stats"][s], b["stats"][s]
         ev = pe.expected_stats[s]
-        ui.text(surf, s, (x, y + 12), 21, ui.TEXT, "black", anchor="midleft")
-        ui.text(surf, f"{va} / {vb}", (x + 120, y + 12), 21, ui.DIM, "bold", anchor="midleft")
+        ico = ed.get_sprite("ui", s, 24)
+        if ico is not None:
+            surf.blit(ico, ico.get_rect(midleft=(x, y + 12)))
+        ui.text(surf, s, (x + 30, y + 12), 20, ui.TEXT, "black", anchor="midleft")
+        ui.text(surf, f"{va} / {vb}", (x + 128, y + 12), 21, ui.DIM, "bold", anchor="midleft")
         bar_x = x + 220
         bar_w = w - 310
-        ui.rrect(surf, (bar_x, y + 4, bar_w, 16), ui.CARD_HI, 6)
+        ui.rrect(surf, (bar_x, y + 4, bar_w, 16), ui.CARD_HI, 6, ink=False)
         fill_w = max(8, round(bar_w * min(7.0, ev) / 7.0))
-        ui.rrect(surf, (bar_x, y + 4, fill_w, 16), ui.stat_col(round(ev)), 6)
+        ui.rrect(surf, (bar_x, y + 4, fill_w, 16), ui.stat_col(round(ev)), 6, ink=False)
+        pygame.draw.rect(surf, ui.INK, (bar_x, y + 4, bar_w, 16), width=2, border_radius=6)
         ui.text(surf, f"{ev:.1f}", (box.right - 28, y + 12), 22, ui.stat_col(round(ev)), "black", anchor="midright")
         y += 34
 
@@ -310,12 +314,27 @@ class BreedingTab:
                     rows.append(ui.Row(c["name"] or f"#{c['key']}", data=("roster_cat", c)))
         self.list.set_rows(rows)
 
+    def _count_for(self, q: str) -> int:
+        mode = self.MODES[self.m][0]
+        if mode == "pairs":
+            if not q:
+                return len(self.top_pairs)
+            toks = q.lower().split()
+            return sum(
+                1 for pe in self.top_pairs
+                if all(t in f"{pe.cat_a['name']} {pe.cat_b['name']} {pe.cat_a['class']} {pe.cat_b['class']}".lower() for t in toks)
+            )
+        house = [c for c in self.app.snap.parsed["cats"] if c["room"] and c["room"] != "(ADVENTURE)" and not c["dead"]]
+        return sum(1 for c in house if self._matches_cat(c, q))
+
     def _open_search(self) -> None:
+        if self.MODES[self.m][0] == "optimizer":
+            return
         def done(q: str) -> None:
             self.query = q
             self.list.sel = 0
             self._rebuild()
-        self.app.push(ed.SearchModal(self.ui, self.app, "Filter Breeding List", self.query, None, done))
+        self.app.push(ed.SearchModal(self.ui, self.app, "Filter Breeding List", self.query, self._count_for, done))
 
     def _best_breeding_room(self) -> str:
         best = max(self.specs, key=lambda r: (r.role == "breeding", r.stimulation, r.comfort))
@@ -339,7 +358,7 @@ class BreedingTab:
             self._run_optimizer()
             self._rebuild()
             self.app.toast(f"Breeding Goal: {br.GOALS[self.goal_idx][1]}", ui.ACCENT, 2.0)
-        elif btn == ui.SELECT:
+        elif btn == ui.SELECT and mode != "optimizer":
             self._open_search()
         elif btn == ui.B and self.query:
             self.query = ""
@@ -419,9 +438,12 @@ class BreedingTab:
                 return
         i = self.list.hit(pos)
         if i is not None:
-            if i == self.list.sel:
+            kind = self.list.rows[i].data[0]
+            if i == self.list.sel or kind in ("apply", "rerun", "roster_cat"):
+                self.list.sel = i
                 self.handle(self.ui.A)
-            self.list.sel = i
+            else:
+                self.list.sel = i
 
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
@@ -429,7 +451,7 @@ class BreedingTab:
         if kind == "apply":
             res: br.OptimizationResult = obj
             mv = len(res.moves)
-            ui.rrect(surf, (r.x, r.y, 10, r.h), ui.GOOD if mv else ui.LINE, 5)
+            ui.rrect(surf, (r.x + 4, r.y + 8, 8, r.h - 16), ui.GOOD if mv else ui.LINE, 4, ink=False)
             ui.text(surf, "Apply Optimized Room Plan", (r.x + 28, r.y + 16), 31, ui.GOOD if mv else ui.TEXT, "black")
             diff = res.total_ens - res.before_ens
             sign = "+" if diff >= 0 else ""
@@ -447,7 +469,7 @@ class BreedingTab:
             sp = rp.spec
             role_col = {"breeding": ui.GOOD, "nursery": ui.INFO, "sickbay": ui.ACCENT,
                         "quarantine": ui.BAD, "locked": ui.DIM}.get(sp.role, ui.DIM)
-            ui.rrect(surf, (r.x, r.y, 10, r.h), role_col, 5)
+            ui.rrect(surf, (r.x + 4, r.y + 8, 8, r.h - 16), role_col, 4, ink=False)
             nr = ui.text(surf, _room_label(sp.name), (r.x + 28, r.y + 14), 31, ui.TEXT, "black", maxw=320)
             ui.pill(surf, br.ROOM_ROLE_LABELS[sp.role], nr.right + 12, nr.centery,
                     ui.mix(role_col, ui.CARD, .72), role_col, size=17, anchor="midleft")
@@ -616,18 +638,46 @@ class BreedingTab:
             return
         kind, obj = row.data
         if kind in ("apply", "rerun") and self.result:
-            # Show summary of the top breeding room or overall plan
-            top_plan = next((rp for rp in self.result.plans if rp.spec.role == "breeding"), self.result.plans[0] if self.result.plans else None)
-            if top_plan:
-                self._draw_room_detail(surf, box, top_plan)
-            else:
-                ui.rrect(surf, box, ui.CARD, 24)
+            self._draw_plan_summary(surf, box, self.result)
         elif kind == "room_plan":
             self._draw_room_detail(surf, box, obj)
         elif kind == "pair":
             draw_pair_simulator(ui, surf, box, obj, self.best_stim)
         elif kind in ("partner_cat", "roster_cat"):
             self._draw_cat_summary(surf, box, obj)
+
+    def _draw_plan_summary(self, surf, box: pygame.Rect, res: br.OptimizationResult) -> None:
+        ui = self.ui
+        ui.rrect(surf, box, ui.CARD, 24)
+        x, y, w = box.x + 28, box.y + 24, box.w - 56
+        ui.text(surf, "OPTIMIZATION PLAN SUMMARY", (x, y), 18, ui.ACCENT, "black")
+        y += 32
+        diff = res.total_ens - res.before_ens
+        sign = "+" if diff >= 0 else ""
+        ui.text(surf, f"Breeding ENS: {res.before_ens:.1f} » {res.total_ens:.1f}", (x, y), 30, ui.GOOD if diff >= 0 else ui.TEXT, "black", maxw=w)
+        y += 40
+        ui.pill(surf, f"{sign}{diff:.1f} ENS gain", x, y, ui.mix(ui.GOOD, ui.CARD, .72), ui.GOOD, size=19)
+        ui.pill(surf, f"{len(res.moves)} move{'s' if len(res.moves) != 1 else ''}", x + 178, y, ui.CARD_HI, ui.ACCENT, size=19)
+        y += 48
+        ui.text(surf, "PLANNED ROOM MOVES", (x, y), 18, ui.FAINT, "black")
+        y += 28
+        if not res.moves:
+            ui.text(surf, "All cats are already in their best rooms for this goal.", (x, y), 22, ui.GOOD, maxw=w)
+        else:
+            by_key = {c["key"]: c for c in self.app.snap.parsed["cats"]}
+            for ck, dst in list(res.moves.items()):
+                if y + 32 > box.bottom - 52:
+                    rem = len(res.moves) - max(0, (y - (box.y + 172)) // 30)
+                    if rem > 0:
+                        ui.text(surf, f"…and {rem} more moves", (x, y), 20, ui.FAINT)
+                    break
+                c = by_key.get(ck)
+                nm = (c["name"] or f"#{ck}") if c else f"#{ck}"
+                src = _room_label(c["room"]) if c else "?"
+                ui.text(surf, nm, (x, y), 21, ui.TEXT, "bold", maxw=190)
+                ui.text(surf, f"{src} » {_room_label(dst)}", (box.right - 28, y), 20, ui.ACCENT, "bold", anchor="topright", maxw=w - 200)
+                y += 30
+        ui.text(surf, "Press A to queue moves · click Save (N) to write.", (x, box.bottom - 34), 20, ui.FAINT, maxw=w)
 
     def hint_items(self):
         mode = self.MODES[self.m][0]

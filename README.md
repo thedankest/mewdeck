@@ -6,7 +6,7 @@
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
-[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.4)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
+[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.5)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
 [![Platform](https://img.shields.io/badge/Linux-Bazzite%20%7C%20SteamOS-70acff?style=for-the-badge&logo=linux&logoColor=14101a)](#one-click-install-on-bazzite--steamos)
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
@@ -26,12 +26,22 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/cats.png" alt="Adventure Party & Cats" /><br />
-      <sub><b>Home & Adventure Cats</b> — Filters, sorting, CoI% inbreeding badges & Graveyard revive</sub>
+      <img src="docs/screenshots/adventure.png" alt="Adventure Hub & Steven Watch" /><br />
+      <sub><b>Adventure Hub</b> — Steven Save-Scum Watch, Auto-block, Party Fixes & Live 4-Cat Party</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/cat-edit.png" alt="Cat Editor with Interactive Cards & Equipped Gear" /><br />
+      <sub><b>Cat Editor</b> — Hoverable Ability/Disorder Cards, 5-Slot Equipped Gear Bar & Official Stat SVGs</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/cats.png" alt="Home & Adventure Cats" /><br />
+      <sub><b>Home & Adventure Cats</b> — Class Collar icons, Sex/Sort filters, CoI% badges & Graveyard revive</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/breeding.png" alt="Cat Organizer & Breeding Helper" /><br />
-      <sub><b>Cat Organizer & Breeding Helper</b> — Room optimizer, ENS pairs, CoI% & 1-press apply</sub>
+      <sub><b>Cat Organizer & Breeding Helper</b> — Room Optimizer Plan Summary, ENS pairs, CoI% & 1-press apply</sub>
     </td>
   </tr>
   <tr>
@@ -40,18 +50,8 @@
       <sub><b>Items & Wiki Icons (989 Sprites)</b> — Home/Adventure transfer, filters, sorting & Set Bonuses</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/cat-edit.png" alt="Cat Editor" /><br />
-      <sub><b>Cat Editor</b> — Rename, rooms, base + bonus stats, class, abilities, mutations & gear</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/abilities.png" alt="Unobfuscated Ability Picker" /><br />
-      <sub><b>Unobfuscated Abilities, Passives (+ Tier 1/2) & Disorders</b></sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/mutations.png" alt="Mutations & Coat Editor" /><br />
-      <sub><b>Mutations & Coat Texture</b> — All 14 body parts, birth defects & L↔R mirror</sub>
+      <img src="docs/screenshots/furniture.png" alt="Furniture & Live Room Totals" /><br />
+      <sub><b>Furniture (633 Sprites)</b> — Unplaced Storage, Room Stat Totals & Full Catalog</sub>
     </td>
   </tr>
 </table>
@@ -95,11 +95,11 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Area | What MewDeck can do |
 | :--- | :--- |
-| **In-Game Sketchbook UI & 3,674 Wiki Sprites** | Hand-inked Mewgenics sketchbook-and-cardboard aesthetic with **3,674 offline wiki sprites** across **Items (989)**, **Abilities & Passives (1,913)**, **Disorders (125)**, **Furniture (633)**, and all **14 Class Collars** — plus toggleable cozy UI sound effects. |
-| **Explicit Save-Only Workflow** | Every edit, Steven reset, heal, and batch action queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with automatic pristine + rolling backups and a live **Backup Diff** viewer. |
-| **Steven Reset, Batch Actions & Unlocks** | Queue Steven reset (`savescumlocation = 0`, strike cap/wipe, strip **Déjà Vu**), **Auto-block Steven**, **Heal All Cats**, **Clear Party Disorders**, **Max Party Stats**, **Strip All Birth Defects**, **Repair All Gear**, and a **Class Collar & House Room Unlocker**. |
-| **Cat Organizer & Breeding Helper** | Built-in **Room Optimizer** (Simulated Annealing using live furniture Stimulation/Health, Eternal Youth buffs, Lover exclusivity & Hater conflict avoidance) with **1-press Apply Plan**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
-| **Cat Editor, Interactive Cards & Presets** | Hoverable / gamepad-inspectable **Ability, Passive & Disorder Cards** with live tooltip previews (click/`A` to edit that exact slot), **Build Presets & Clone/Paste**, **Equip Full Armor Set** (`Y` in Equipment), **Rename cats**, **Move Rooms**, Base + **Level-Up Bonuses**, Mutations (L↔R mirror), and Class Collars. |
+| **In-Game Sketchbook UI & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook-and-cardboard aesthetic with **3,694 offline wiki sprites** across **Items (989)**, **Abilities & Passives (1,913)**, **Disorders (125)**, **Furniture (633)**, **14 Class Collars**, and **20 official Stat & UI SVGs** — plus toggleable cozy UI sound effects. |
+| **Separate Home & Adventure Tabs** | Cleanly separated **Home** (House Gold/Food, Collars, Storage, Heal All, Repair Gear, Strip Defects, Unlocks, Properties) and **Adventure** (Steven Save-Scum Watch, Auto-block, Party Fixes, Adv Coins/Food/Boxes, Live 4-Cat Party roster & Backpack jump) tabs with SVG icons. |
+| **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer. |
+| **Cat Organizer & Breeding Helper** | Built-in **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
+| **Cat Editor, Interactive Cards & Gear Mini-Bar** | Hoverable / gamepad-inspectable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar** with live tooltip previews (click/`A` to edit that exact slot), **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses**, Mutations (L↔R mirror), and Class Collars. |
 | **Items, Furniture, Cloning & Self-Updater** | Browse, sort, filter, and move items **Home ↔ Adventure**, inspect **101 Armor Set Bonuses** and **633 Furniture** items with live room totals, **Clone Save Slots** (`X` on Save Picker), and **update MewDeck right inside Game Mode**. |
 
 ---
@@ -108,7 +108,7 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Input | Action |
 | :--- | :--- |
-| **`LB` / `RB`** | Switch tabs (*Home · Cats · Items · Furniture · Backups*) · Prev/next cat in Cat Editor |
+| **`LB` / `RB`** | Switch tabs (*Home · Adventure · Cats · Breeding · Items · Furniture · Backups*) · Prev/next cat in Cat Editor |
 | **`LT` / `RT`** | Fast page scroll (±10 rows) in long lists *(also `PageUp` / `PageDown` / `[` / `]`)* |
 | **D-Pad / Left Stick** | Navigate · `◀ ▶` adjust values (hold to accelerate) or switch filters / Passive Tier 1–2 |
 | **`A`** | Select / open editor / add item / **move owned item Home ↔ Adventure** / confirm |
@@ -154,7 +154,7 @@ MEWDECK_TEST_SAVE=/path/to/steamcampaign01.sav python3 tests/test_savefile.py
 - **Steven anti-save-scum reset:** [TaliesinYang/mewgenics-bye-bye-steven](https://github.com/TaliesinYang/mewgenics-bye-bye-steven)
 - **Proton save paths:** [Yggdraszil/mewgenics_patcher](https://github.com/Yggdraszil/mewgenics_patcher)
 - **Breeding simulation, pedigree CoI & room optimizer reference:** [PurpleMyst/mewgenics_breeding_helper](https://github.com/PurpleMyst/mewgenics_breeding_helper) (MIT) & [frankieg33/MewgenicsBreedingManager](https://github.com/frankieg33/MewgenicsBreedingManager)
-- **Item icons:** [mewgenics.wiki.gg](https://mewgenics.wiki.gg/) (packed offline via `scripts/fetch_item_icons.py`)
+- **Wiki sprites & icons:** [mewgenics.wiki.gg](https://mewgenics.wiki.gg/) (packed offline via `scripts/`)
 - **Typography:** [Nunito](https://github.com/googlefonts/nunito) (SIL OFL 1.1)
 
 Licensed under **AGPL-3.0**. Personal, non-commercial tool.

@@ -28,6 +28,7 @@ _ATLAS_PATHS: dict[str, tuple[str, str]] = {
     "disorder": ("abilities/disorder_icons.png", "abilities/disorder_icons.json"),
     "furniture": ("furniture/furniture_icons.png", "furniture/furniture_icons.json"),
     "class": ("class_icons.png", "class_icons.json"),
+    "ui": ("ui_icons.png", "ui_icons.json"),
 }
 _ATLAS_STATE: dict[str, tuple[pygame.Surface | None, dict[str, Any]]] = {}
 _SPRITE_CACHE: dict[tuple[str, str, int], pygame.Surface | None] = {}
@@ -225,7 +226,7 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         card_h = min(sb_h_avail, 46 + len(sb_lines) * 25 + 12)
         sbox = pygame.Rect(x, y, w, card_h)
         ui.rrect(surf, sbox, ui.CARD_HI, 16)
-        ui.rrect(surf, (sbox.x, sbox.y, 7, sbox.h), ui.ACCENT, 4)
+        ui.rrect(surf, (sbox.x + 4, sbox.y + 8, 7, sbox.h - 16), ui.ACCENT, 4, ink=False)
         ui.text(surf, f"{sb['name']} ({sb.get('pieces', 3)} pcs)", (sbox.x + 18, sbox.y + 10), 21, ui.ACCENT, "black",
                 maxw=sbox.w - 30)
         sy = sbox.y + 40
@@ -336,6 +337,9 @@ class SearchModal:
             self.app.pop()
 
     def click(self, pos) -> None:
+        if getattr(self, "_box", None) and not self._box.collidepoint(pos):
+            self.app.pop()
+            return
         for rect, rr, cc, k in self.key_rects:
             if rect.collidepoint(pos):
                 self.r, self.c = rr, cc
@@ -346,13 +350,14 @@ class SearchModal:
         ui = self.ui
         self.app.stack[-2].draw(surf)
         shade = pygame.Surface((ui.W, ui.H), pygame.SRCALPHA)
-        shade.fill((8, 5, 12, 210))
+        shade.fill((16, 13, 11, 210))
         surf.blit(shade, (0, 0))
 
         box = pygame.Rect(0, 0, 1180, 680)
         box.center = (ui.W // 2, ui.H // 2)
-        ui.rrect(surf, box, ui.CARD, 28)
-        ui.rrect(surf, (box.x, box.y, box.w, 8), ui.ACCENT, 4)
+        self._box = box
+        ui.rrect(surf, box, ui.CARD, 28, shadow=True)
+        ui.draw_top_band(surf, pygame.Rect(box.x + 3, box.y + 3, box.w - 6, 80), ui.ACCENT, 36, radius=25)
 
         ui.text(surf, self.title, (box.x + 44, box.y + 30), 34, ui.TEXT, "black")
         if self.count_fn is not None:
@@ -528,6 +533,8 @@ class CatalogPicker:
         elif btn == ui.X and self.allow_clear:
             self.app.pop()
             self.on_pick(None)
+        elif btn == ui.START:
+            self.app.write()
         elif btn == ui.B:
             if self.query:
                 self.query = ""
@@ -573,11 +580,11 @@ class CatalogPicker:
             pygame.draw.circle(surf, dot_col, (r.x + 34, r.centery), 10)
             tx = r.x + 62
         ui.text(surf, e["name"], (tx, r.centery), 32, ui.ACCENT if is_cur else ui.TEXT, "bold",
-                anchor="midleft", maxw=r.w - 330)
+                anchor="midleft", maxw=max(160, r.right - tx - 285))
         if self.row_meta_fn:
             meta, mcol = self.row_meta_fn(e)
             if meta:
-                ui.text(surf, meta, (r.right - 26, r.centery), 23, mcol, "bold", anchor="midright", maxw=260)
+                ui.text(surf, meta, (r.right - 26, r.centery), 23, mcol, "bold", anchor="midright", maxw=250)
 
     def draw(self, surf) -> None:
         ui = self.ui
@@ -838,6 +845,11 @@ class AbilitiesScreen:
             self.app.pop()
 
     def click(self, pos) -> None:
+        for r, idx in getattr(self, "tier_rects", []):
+            if r.collidepoint(pos):
+                self.list.sel = idx
+                self.handle(self.ui.RIGHT)
+                return
         i = self.list.hit(pos)
         if i is not None:
             if i == self.list.sel:
@@ -861,13 +873,15 @@ class AbilitiesScreen:
         ui.text(surf, val, (r.x + 102, r.bottom - 18), 34, col, "black", anchor="bottomleft", maxw=r.w - 300)
         if self.mode == "passive" and row.data[2]:
             tier = row.data[3]
-            ui.pill(surf, f"Tier {tier}{'+' if tier == 2 else ''}", r.right - 30, r.centery,
-                    ui.ACCENT if tier == 2 else ui.CARD_HI, ui.DARK if tier == 2 else ui.DIM, size=21, anchor="midright")
-        elif self.mode == "active" and row.data[3].get("mana"):
+            pr = ui.pill(surf, f"Tier {tier}{'+' if tier == 2 else ''}", r.right - 30, r.centery,
+                         ui.ACCENT if tier == 2 else ui.CARD_HI, ui.DARK if tier == 2 else ui.DIM, size=21, anchor="midright")
+            self.tier_rects.append((pr, row.data[1]))
+        elif self.mode == "active" and str(row.data[3].get("mana") or "").strip() not in ("", "0", "None"):
             ui.pill(surf, f"{row.data[3]['mana']} MP", r.right - 30, r.centery, ui.INFO, ui.DARK, size=20, anchor="midright")
 
     def draw(self, surf) -> None:
         ui = self.ui
+        self.tier_rects = []
         area = pygame.Rect(ui.PAD, ui.HEADER_H + 24, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 24)
         la = pygame.Rect(area.x, area.y, area.w - 640, area.h)
         self.list.draw(surf, la, self._render_row)
@@ -880,32 +894,38 @@ class AbilitiesScreen:
             return
         if self.mode == "active":
             _, idx, aid, info = row.data
+            if aid:
+                ico_box = pygame.Rect(box.right - 30 - 88, y, 88, 88)
+                draw_sprite_badge(ui, surf, "ability", aid, ico_box, border_col=ui.CLASS_COL.get(info.get("class", "")))
             ui.text(surf, row.label.upper(), (x, y), 18, ui.FAINT, "black")
             y += 30
-            ui.text(surf, info["name"], (x, y), 36, ui.TEXT if aid else ui.DIM, "black", maxw=w)
+            ui.text(surf, info["name"], (x, y), 36, ui.TEXT if aid else ui.DIM, "black", maxw=w - (104 if aid else 0))
             y += 50
             bx = x
             if info.get("class"):
                 bx = ui.pill(surf, info["class"], bx, y, ui.CLASS_COL.get(info["class"], ui.LINE), ui.DARK, size=20).right + 10
-            if info.get("mana"):
+            if str(info.get("mana") or "").strip() not in ("", "0", "None"):
                 bx = ui.pill(surf, f"{info['mana']} Mana", bx, y, ui.INFO, ui.DARK, size=20).right + 10
-            if info.get("damage"):
+            if str(info.get("damage") or "").strip() not in ("", "0", "None"):
                 ui.pill(surf, f"DMG {info['damage']}", bx, y, ui.BAD, ui.DARK, size=20)
-            y += 48
+            y = max(y + 48, box.y + 132)
             for ln in wrap_lines(ui.F(25), info.get("desc") or "Press A to pick an ability for this slot.", w, max_lines=10):
                 if ln:
                     ui.text(surf, ln, (x, y), 25, ui.TEXT if aid else ui.DIM)
                 y += 32
         elif self.mode == "passive":
             _, idx, pid, tier, info = row.data
+            if pid:
+                ico_box = pygame.Rect(box.right - 30 - 88, y, 88, 88)
+                draw_sprite_badge(ui, surf, "ability", pid, ico_box, border_col=ui.ACCENT)
             ui.text(surf, f"{row.label.upper()}  ·  TIER {tier}", (x, y), 18, ui.ACCENT if tier == 2 else ui.FAINT, "black")
             y += 30
-            ui.text(surf, info.get("display_name", info["name"]), (x, y), 36, ui.TEXT if pid else ui.DIM, "black", maxw=w)
+            ui.text(surf, info.get("display_name", info["name"]), (x, y), 36, ui.TEXT if pid else ui.DIM, "black", maxw=w - (104 if pid else 0))
             y += 52
             if pid:
                 ui.pill(surf, info.get("class") or "Colorless", x, y,
                         ui.CLASS_COL.get(info.get("class", ""), ui.LINE), ui.DARK, size=20)
-                y += 50
+                y = max(y + 50, box.y + 132)
                 desc = info.get("active_desc") or info.get("desc") or "No description."
                 for ln in wrap_lines(ui.F(25), desc, w, max_lines=8):
                     if ln:
@@ -917,10 +937,13 @@ class AbilitiesScreen:
                 ui.text(surf, "Press A to assign a passive.", (x, y), 25, ui.DIM)
         else:
             _, idx, did, info = row.data
+            if did:
+                ico_box = pygame.Rect(box.right - 30 - 88, y, 88, 88)
+                draw_sprite_badge(ui, surf, "disorder", did, ico_box, border_col=ui.BAD)
             ui.text(surf, row.label.upper(), (x, y), 18, ui.FAINT, "black")
             y += 30
-            ui.text(surf, info["name"], (x, y), 36, ui.BAD if did else ui.GOOD, "black", maxw=w)
-            y += 52
+            ui.text(surf, info["name"], (x, y), 36, ui.BAD if did else ui.GOOD, "black", maxw=w - (104 if did else 0))
+            y = max(y + 52, box.y + 132)
             desc = info.get("desc") or ("No disorder in this slot." if not did else "No description.")
             for ln in wrap_lines(ui.F(25), desc, w, max_lines=10):
                 if ln:
@@ -1226,12 +1249,12 @@ class EquipScreen:
             pygame.draw.rect(surf, ui.LINE, badge, width=2, border_radius=14)
         ui.text(surf, row.label.upper(), (r.x + 106, r.y + 16), 19, ui.FAINT, "black")
         ui.text(surf, info["name"] if info else "Empty", (r.x + 106, r.bottom - 18), 34,
-                ui.TEXT if info else ui.FAINT, "black", anchor="bottomleft", maxw=r.w - 310)
+                ui.TEXT if info else ui.FAINT, "black", anchor="bottomleft", maxw=max(180, r.w - 395))
         if info:
             rc = ui.RARITY_COL.get(info.get("rarity", ""), ui.DIM)
             st = gd.format_stats(info.get("stats"))
             if st:
-                ui.text(surf, st, (r.right - 28, r.centery), 22, ui.GOOD, "bold", anchor="midright", maxw=260)
+                ui.text(surf, st, (r.right - 28, r.centery), 22, ui.GOOD, "bold", anchor="midright", maxw=250)
             elif info.get("rarity"):
                 ui.pill(surf, info["rarity"].replace("_", " "), r.right - 28, r.centery, rc, ui.DARK, size=18, anchor="midright")
 
@@ -1418,16 +1441,19 @@ class FurnitureTab:
                 self.handle(self.ui.A)
             self.list.sel = i
 
+    _SHORT_EF = {"Comfort": "Comf", "Stimulation": "Stim", "Health": "Hlth", "Appeal": "App", "Evolution": "Evo"}
+
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
         kind, obj, info = row.data
         badge = pygame.Rect(r.x + 14, r.centery - 29, 58, 58)
         draw_sprite_badge(ui, surf, "furniture", info.get("id"), badge)
-        ui.text(surf, info["name"], (r.x + 86, r.centery), 30, ui.ACCENT if kind == "queued" else ui.TEXT,
-                "bold", anchor="midleft", maxw=r.w - 430)
-        ef_str = gd.format_stats(info.get("effects"))
+        ui.text(surf, info["name"], (r.x + 86, r.centery), 29, ui.ACCENT if kind == "queued" else ui.TEXT,
+                "bold", anchor="midleft", maxw=r.w - 460)
+        efs = info.get("effects") or {}
+        ef_str = " · ".join(f"{'+' if v > 0 else ''}{v} {self._SHORT_EF.get(k, k)}" for k, v in efs.items() if v)
         if ef_str:
-            ui.text(surf, ef_str, (r.right - 90, r.centery), 21, ui.GOOD, "bold", anchor="midright", maxw=320)
+            ui.text(surf, ef_str, (r.right - 92, r.centery), 20, ui.GOOD, "bold", anchor="midright", maxw=370)
         if kind == "catalog":
             n = self.app.pending.furn_add.count(info["id"])
             if n:
@@ -1495,7 +1521,11 @@ class FurnitureTab:
                     ex = r.right + 8
                 by += 44
             if info.get("desc"):
+                mk_now = self.modes[self.m][0]
+                desc_bottom = (box.bottom - 232) if mk_now.startswith("room:") else (box.bottom - 48)
                 for ln in wrap_lines(ui.F(23), info["desc"], bw, max_lines=4):
+                    if by + 28 > desc_bottom:
+                        break
                     ui.text(surf, ln, (bx, by), 23, ui.DIM)
                     by += 28
                 by += 10
@@ -1568,6 +1598,12 @@ class BonusStatsScreen:
             self.app.pop()
 
     def click(self, pos) -> None:
+        for ar, s, d in getattr(self, "adj_rects", []):
+            if ar.collidepoint(pos):
+                cur = self.cat_edit.vals["level_bonuses"][s]
+                self.cat_edit.vals["level_bonuses"][s] = max(-20, min(99, cur + d))
+                self.cat_edit.commit_local()
+                return
         i = self.list.hit(pos)
         if i is not None:
             self.list.sel = i
@@ -1579,16 +1615,25 @@ class BonusStatsScreen:
         bonus = self.cat_edit.vals["level_bonuses"][s]
         inj = 0 if self.cat_edit.vals["heal"] else self.cat_edit.cat["injury_mods"][s]
         eff = max(1, base + bonus + inj)
-        ui.text(surf, s, (r.x + 30, r.centery), 34, ui.TEXT, "black", anchor="midleft")
+        ico = get_sprite("ui", s, 32)
+        if ico is not None:
+            surf.blit(ico, ico.get_rect(midleft=(r.x + 24, r.centery)))
+        ui.text(surf, s, (r.x + 68, r.centery), 32, ui.TEXT, "black", anchor="midleft")
         ui.text(surf, f"Base {base}  {'+' if bonus >= 0 else ''}{bonus} bonus" + (f"  {inj} inj" if inj else "") + f"  =  {eff}",
-                (r.x + 170, r.centery), 24, ui.DIM, anchor="midleft")
-        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 200, r.centery), 11, "left")
-        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 38, r.centery), 11, "right")
+                (r.x + 190, r.centery), 24, ui.DIM, anchor="midleft")
+        lr = pygame.Rect(r.right - 224, r.centery - 22, 44, 44)
+        rr = pygame.Rect(r.right - 60, r.centery - 22, 44, 44)
+        for ar, d, direction in ((lr, -1, "left"), (rr, 1, "right")):
+            pygame.draw.rect(surf, ui.CARD_HI if selected else ui.mix(ui.CARD, ui.CARD_HI, .5), ar, border_radius=10)
+            pygame.draw.rect(surf, ui.INK, ar, width=2, border_radius=10)
+            ui.tri(surf, ui.TEXT if selected else ui.DIM, ar.center, 9, direction)
+            self.adj_rects.append((ar, s, d))
         col = ui.GOOD if bonus > 0 else ui.BAD if bonus < 0 else ui.TEXT
-        ui.text(surf, f"{'+' if bonus > 0 else ''}{bonus}", (r.right - 119, r.centery), 36, col, "black", anchor="center")
+        ui.text(surf, f"{'+' if bonus > 0 else ''}{bonus}", (r.right - 120, r.centery), 36, col, "black", anchor="center")
 
     def draw(self, surf) -> None:
         ui = self.ui
+        self.adj_rects = []
         area = pygame.Rect(ui.PAD, ui.HEADER_H + 24, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 24)
         la = pygame.Rect(area.x, area.y, area.w - 580, area.h)
         self.list.draw(surf, la, self._render_row)
@@ -1691,11 +1736,14 @@ class PropertiesScreen:
         if self.search_rect and self.search_rect.collidepoint(pos):
             self._open_search()
             return
+        for ar, k, d in getattr(self, "adj_rects", []):
+            if ar.collidepoint(pos):
+                self._set_val(k, self._cur_val(k) + d)
+                return
         i = self.list.hit(pos)
         if i is not None:
-            if i == self.list.sel:
-                self.handle(self.ui.A)
             self.list.sel = i
+            self.handle(self.ui.A)
 
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
@@ -1703,13 +1751,20 @@ class PropertiesScreen:
         val = self._cur_val(k)
         changed = val != self.orig[k]
         ui.text(surf, k, (r.x + 28, r.centery), 26, ui.ACCENT if changed else ui.TEXT, "bold",
-                anchor="midleft", maxw=r.w - 320)
-        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 220, r.centery), 10, "left")
-        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 36, r.centery), 10, "right")
-        ui.text(surf, f"{val:,}", (r.right - 128, r.centery), 30, ui.ACCENT if changed else ui.TEXT, "black", anchor="center")
+                anchor="midleft", maxw=r.w - 340)
+        lr = pygame.Rect(r.right - 244, r.centery - 22, 44, 44)
+        rr = pygame.Rect(r.right - 58, r.centery - 22, 44, 44)
+        for ar, d, direction in ((lr, -1, "left"), (rr, 1, "right")):
+            pygame.draw.rect(surf, ui.CARD_HI if selected else ui.mix(ui.CARD, ui.CARD_HI, .5), ar, border_radius=10)
+            pygame.draw.rect(surf, ui.INK, ar, width=2, border_radius=10)
+            ui.tri(surf, ui.TEXT if selected else ui.DIM, ar.center, 9, direction)
+            if ui.HEADER_H + 54 <= ar.centery <= ui.CONTENT_BOTTOM:
+                self.adj_rects.append((ar, k, d))
+        ui.text(surf, f"{val:,}", (r.right - 128, r.centery), 29, ui.ACCENT if changed else ui.TEXT, "black", anchor="center", maxw=118)
 
     def draw(self, surf) -> None:
         ui = self.ui
+        self.adj_rects = []
         area = pygame.Rect(ui.PAD, ui.HEADER_H + 18, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 18)
         ui.text(surf, f"{len(self.list.rows)} / {len(self.all_props)} integer properties  ·  A toggles 0/1 · Left/Right adjusts",
                 (area.x, area.y + 18), 23, ui.DIM, anchor="midleft")
@@ -1784,6 +1839,8 @@ class FullSetPickerScreen:
             self.cat_edit.commit_local()
             self.app.pop()
             self.app.toast(f"Equipped {s['name']} ({len(s['slots'])} pcs)", ui.GOOD, 2.5)
+        elif btn == ui.START:
+            self.app.write()
         elif btn == ui.B:
             if self.query:
                 self.query = ""
@@ -1856,7 +1913,7 @@ class FullSetPickerScreen:
             y += 64
 
     def hint_items(self):
-        return [("A", "Equip Full Set"), ("SELECT", "Search"), ("B", "Clear" if self.query else "Cancel")]
+        return [("A", "Equip Full Set"), ("SELECT", "Search"), ("B", "Clear" if self.query else "Cancel")] + self.ui.pending_hint(self.app)
 
 
 # --------------------------------------------------------------------------- Class Collar & House Unlocker
@@ -1929,9 +1986,8 @@ class UnlocksScreen:
     def click(self, pos) -> None:
         i = self.list.hit(pos)
         if i is not None:
-            if i == self.list.sel:
-                self.handle(self.ui.A)
             self.list.sel = i
+            self.handle(self.ui.A)
 
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
@@ -2041,6 +2097,8 @@ class PresetsScreen:
         row = self.list.current
         if btn in (ui.UP, ui.DOWN):
             self.list.move(-1 if btn == ui.UP else 1)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-8 if btn == ui.LT else 8)
         elif btn == ui.A and row:
             kind, obj = row.data
             if kind == "copy":
@@ -2067,6 +2125,8 @@ class PresetsScreen:
             pr.delete_user_preset(row.data[1]["name"])
             self._rebuild()
             self.app.toast(f"Deleted preset '{row.data[1]['name']}'", ui.ACCENT, 2.0)
+        elif btn == ui.START:
+            self.app.write()
         elif btn == ui.B:
             self.app.pop()
 
@@ -2123,4 +2183,4 @@ class PresetsScreen:
                 y += 30
 
     def hint_items(self):
-        return [("A", "Apply / Run"), ("X", "Delete Custom"), ("B", "Back")]
+        return [("A", "Apply / Run"), ("X", "Delete Custom"), ("B", "Back")] + self.ui.pending_hint(self.app)

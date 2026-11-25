@@ -277,13 +277,14 @@ def test_real_save_v14_unlocks_batch_clone_and_atlases():
     if not real or not Path(real).is_file():
         return
 
-    # All 5 offline wiki sprite atlases exist and are populated
+    # All 6 offline wiki sprite atlases exist and are populated
     for rel, min_cnt in (
         ("items/item_icons", 950),
         ("abilities/ability_icons", 1800),
         ("abilities/disorder_icons", 125),
         ("furniture/furniture_icons", 630),
         ("class_icons", 14),
+        ("ui_icons", 20),
     ):
         assert (gd.DATA_DIR / f"{rel}.png").is_file(), f"missing {rel}.png"
         m = json.loads((gd.DATA_DIR / f"{rel}.json").read_text(encoding="utf-8"))
