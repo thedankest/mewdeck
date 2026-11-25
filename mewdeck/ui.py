@@ -222,7 +222,8 @@ class Input:
                   pygame.K_RETURN: A, pygame.K_SPACE: A, pygame.K_KP_ENTER: A,
                   pygame.K_ESCAPE: B, pygame.K_BACKSPACE: B, pygame.K_x: X, pygame.K_y: Y,
                   pygame.K_q: LB, pygame.K_PAGEUP: LB, pygame.K_e: RB, pygame.K_PAGEDOWN: RB,
-                  pygame.K_TAB: START, pygame.K_s: START, pygame.K_BACKQUOTE: SELECT}
+                  pygame.K_TAB: START, pygame.K_s: START, pygame.K_BACKQUOTE: SELECT,
+                  pygame.K_SLASH: SELECT, pygame.K_f: SELECT}
             name = km.get(ev.key)
             if name in REPEATABLE:
                 self.count[name] = self.count.get(name, 0) + 1 if getattr(ev, "repeat", False) else 0
@@ -376,6 +377,12 @@ def glyph(surf, name: str, x: int, cy: int) -> int:
         rrect(surf, rr, (128, 116, 150), 18)
         for dy in (-8, 0, 8):
             pygame.draw.line(surf, DARK, (rr.centerx - 12, cy + dy), (rr.centerx + 12, cy + dy), 4)
+        return rr.right
+    if name == "SELECT":
+        rr = pygame.Rect(x, cy - 18, 54, 36)
+        rrect(surf, rr, (128, 116, 150), 18)
+        pygame.draw.rect(surf, DARK, (rr.centerx - 12, cy - 9, 15, 12), width=3, border_radius=2)
+        pygame.draw.rect(surf, DARK, (rr.centerx - 3, cy - 3, 15, 12), width=3, border_radius=2)
         return rr.right
     if name.startswith("DPAD"):
         c = (128, 116, 150)
@@ -1009,23 +1016,51 @@ class CatsTab(Tab):
         super().__init__(app)
         self.list = ListView(row_h=118, gap=11)
         self.f = 0
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
         self.chip_rects: list[pygame.Rect] = []
 
-    def _pool(self, idx: int) -> list[dict[str, Any]]:
+    @staticmethod
+    def _cat_matches(c: dict[str, Any], q: str) -> bool:
+        if not q:
+            return True
+        ab = c["abilities"]
+        names = [c["name"], c["class"], c["room"], gd.injury_info(c["injury"])["name"]]
+        names += [gd.active_info(a)["name"] for a in ab["active"] if a]
+        names += [gd.passive_info(p)["name"] for p in ab["passive"] if p]
+        names += [gd.disorder_info(d)["name"] for d in ab["disorder"] if d]
+        hay = " ".join(str(x) for x in names).lower()
+        return all(tok in hay for tok in q.lower().split())
+
+    def _pool(self, idx: int, q: str = "") -> list[dict[str, Any]]:
         _, src, pred = self.FILTERS[idx]
         cats = self.app.snap.parsed["graveyard"] if src == "graveyard" else self.app.snap.parsed["cats"]
-        return [c for c in cats if pred(c)]
+        return [c for c in cats if pred(c) and self._cat_matches(c, q)]
 
     def on_enter(self) -> None:
-        cats = sorted(self._pool(self.f),
+        cats = sorted(self._pool(self.f, self.query),
                       key=lambda c: (c["room"] != "(ADVENTURE)", c["room"], c["name"].lower()))
         self.list.set_rows([Row(c["name"] or f"#{c['key']}", data=c) for c in cats])
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self.on_enter()
+        self.app.push(ed.SearchModal(sys.modules[__name__], self.app, "Search Cats", self.query,
+                                     lambda q: len(self._pool(self.f, q)), done))
 
     def handle(self, btn: str) -> bool:
         if btn in (UP, DOWN):
             self.list.move(-1 if btn == UP else 1)
         elif btn in (LEFT, RIGHT):
             self.f = (self.f + (1 if btn == RIGHT else -1)) % len(self.FILTERS)
+            self.list.sel = 0
+            self.on_enter()
+        elif btn == SELECT:
+            self._open_search()
+        elif btn == B and self.query:
+            self.query = ""
             self.list.sel = 0
             self.on_enter()
         elif btn == A and self.list.current:
@@ -1045,6 +1080,9 @@ class CatsTab(Tab):
         return True
 
     def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
         for i, r in enumerate(self.chip_rects):
             if r.collidepoint(pos):
                 self.f = i
@@ -1111,9 +1149,12 @@ class CatsTab(Tab):
             self.chip_rects.append(r)
             x = r.right + 11
         glyph(surf, "DPAD_LR", x + 11, self.chip_rects[0].centery)
+        self.search_rect = ed.draw_search_pill(sys.modules[__name__], surf, area.right - 20, self.chip_rects[0].centery,
+                                               self.query, anchor="midright")
         la = pygame.Rect(area.x, area.y + 68, area.w - 20, area.h - 68)
         if not self.list.rows:
-            text(surf, "No cats in this filter", (la.centerx, la.y + 108), 35, FAINT, "bold", anchor="midtop")
+            msg = f'No cats matching "{self.query}"' if self.query else "No cats in this filter"
+            text(surf, msg, (la.centerx, la.y + 108), 35, FAINT, "bold", anchor="midtop")
             return
         self.list.draw(surf, la, self.render_row)
 
@@ -1124,7 +1165,7 @@ class CatsTab(Tab):
             extra = [("X", "Revive")]
         elif cur and (cur["injured"] or cur["wounded"]):
             extra = [("X", "Heal")]
-        return [("A", "Edit cat")] + extra + [("DPAD_LR", "Filter"), ("B", "Saves")]
+        return [("A", "Edit cat")] + extra + [("SELECT", "Search"), ("DPAD_LR", "Filter"), ("B", "Clear" if self.query else "Saves")]
 
 
 class CatEdit(Screen):
@@ -1465,6 +1506,8 @@ class ItemsTab(Tab):
         self.tabs = ["owned", "all"] + kinds
         self.c_idx = 0  # 0=Home Storage, 1=Adventure Backpack, 2=Trash
         self.t = 1      # default to "all" catalog so browsing + adding is instant
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
         self.list = ListView(row_h=82, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
         self.container_rects: list[tuple[pygame.Rect, int]] = []
@@ -1480,7 +1523,19 @@ class ItemsTab(Tab):
     def on_enter(self) -> None:
         self._rebuild()
 
-    def _rebuild(self) -> None:
+    @staticmethod
+    def _item_matches(it: dict[str, Any], q: str) -> bool:
+        if not q:
+            return True
+        sets = " ".join(sb.get("name", "") + " " + sb.get("desc", "") for sb in gd.item_set_info(it))
+        hay = " ".join(str(x) for x in (
+            it.get("name", ""), it.get("id", ""), it.get("kind", ""), it.get("rarity", ""),
+            it.get("desc", ""), it.get("set", ""), gd.format_stats(it.get("stats")), sets,
+            "cursed" if it.get("cursed") else "",
+        )).lower()
+        return all(tok in hay for tok in q.lower().split())
+
+    def _rows_for(self, q: str) -> list[Row]:
         grp = self.container
         mode = self.tabs[self.t]
         rows: list[Row] = []
@@ -1490,15 +1545,28 @@ class ItemsTab(Tab):
                 if int(raw["instance_id"]) in rems:
                     continue
                 info = gd.item_info(raw["item_id"])
-                rows.append(Row(info["name"], data=("owned", raw, info)))
+                if self._item_matches(info, q):
+                    rows.append(Row(info["name"], data=("owned", raw, info)))
             for iid in self.app.pending.inv_add[grp]:
                 info = gd.item_info(iid)
-                rows.append(Row(info["name"], data=("queued", iid, info)))
+                if self._item_matches(info, q):
+                    rows.append(Row(info["name"], data=("queued", iid, info)))
         else:
             for it in self.items:
-                if mode == "all" or (it.get("kind") or "other") == mode:
+                if (mode == "all" or (it.get("kind") or "other") == mode) and self._item_matches(it, q):
                     rows.append(Row(it.get("name") or it["id"], data=("catalog", it["id"], it)))
-        self.list.set_rows(rows)
+        return rows
+
+    def _rebuild(self) -> None:
+        self.list.set_rows(self._rows_for(self.query))
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self._rebuild()
+        self.app.push(ed.SearchModal(sys.modules[__name__], self.app, "Search Items", self.query,
+                                     lambda q: len(self._rows_for(q)), done))
 
     def handle(self, btn: str) -> bool:
         grp = self.container
@@ -1508,6 +1576,12 @@ class ItemsTab(Tab):
             self.list.move((-1 if btn == UP else 1) * (1 if self.app.input.count.get(btn, 0) < 12 else 5))
         elif btn in (LEFT, RIGHT):
             self.t = (self.t + (1 if btn == RIGHT else -1)) % len(self.tabs)
+            self.list.sel = 0
+            self._rebuild()
+        elif btn == SELECT:
+            self._open_search()
+        elif btn == B and self.query:
+            self.query = ""
             self.list.sel = 0
             self._rebuild()
         elif btn == Y:
@@ -1537,6 +1611,9 @@ class ItemsTab(Tab):
         return True
 
     def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
         for r, i in self.container_rects:
             if r.collidepoint(pos):
                 self.c_idx = i
@@ -1587,13 +1664,16 @@ class ItemsTab(Tab):
             cx = r.right + 12
         glyph(surf, "Y", cx + 6, self.container_rects[0][0].centery)
 
-        # Row 2: Mode / category chips
+        # Row 2: Mode / category chips + Search pill
         cy = area.y + 52
+        self.search_rect = ed.draw_search_pill(sys.modules[__name__], surf, area.right - 620, cy + 16, self.query,
+                                               anchor="midright")
+        chips_right = self.search_rect.left - 14
         self.chip_rects = []
         labels = ["Owned" if t == "owned" else ("Add: All" if t == "all" else t.replace("_", " ").title()) for t in self.tabs]
         widths = [F(21, "bold").size(l)[0] + 30 for l in labels]
         start = 0
-        while sum(widths[start:self.t + 1]) > area.w - 640 and start < self.t:
+        while sum(widths[start:self.t + 1]) > (chips_right - area.x - 24) and start < self.t:
             start += 1
         x = area.x
         if start:
@@ -1602,7 +1682,7 @@ class ItemsTab(Tab):
         for i in range(start, len(self.tabs)):
             sel = i == self.t
             w_est = F(21, "bold").size(labels[i])[0] + 21
-            if x + w_est > area.right - 600:
+            if x + w_est > chips_right:
                 break
             r = pill(surf, labels[i], x, cy, ACCENT if sel else CARD, DARK if sel else DIM, 21)
             self.chip_rects.append((r, i))
@@ -1611,7 +1691,8 @@ class ItemsTab(Tab):
         list_w = area.w - 620
         la = pygame.Rect(area.x, cy + 52, list_w, area.bottom - (cy + 52))
         if not self.list.rows:
-            text(surf, f"No items in {self.container_label}", (la.centerx, la.y + 100), 30, FAINT, "bold", anchor="midtop")
+            msg = f'No items matching "{self.query}"' if self.query else f"No items in {self.container_label}"
+            text(surf, msg, (la.centerx, la.y + 100), 30, FAINT, "bold", anchor="midtop")
         else:
             self.list.draw(surf, la, self.render_row)
 
@@ -1640,8 +1721,8 @@ class ItemsTab(Tab):
 
     def hint_items(self):
         if self.tabs[self.t] == "owned":
-            return [("X", "Remove"), ("Y", "Home/Adv"), ("DPAD_LR", "Filter"), ("B", "Saves")]
-        return [("A", f"Add to {self.container_label.split()[0]}"), ("X", "Undo"), ("Y", "Home/Adv"), ("DPAD_LR", "Filter")]
+            return [("X", "Remove"), ("Y", "Home/Adv"), ("SELECT", "Search"), ("B", "Clear" if self.query else "Saves")]
+        return [("A", f"Add to {self.container_label.split()[0]}"), ("Y", "Home/Adv"), ("SELECT", "Search"), ("DPAD_LR", "Filter")]
 
 
 # --------------------------------------------------------------------------- backups
@@ -2051,6 +2132,8 @@ class App:
                     self.click(self._map_pos(ev.pos))
                 elif ev.type == pygame.MOUSEWHEEL and not getattr(ev, "touch", False):
                     self.top().handle(UP if ev.y > 0 else DOWN)
+                elif ev.type == pygame.KEYDOWN and hasattr(self.top(), "handle_raw_key") and self.top().handle_raw_key(ev):
+                    continue
                 else:
                     for b in self.input.translate(ev):
                         self.top().handle(b)

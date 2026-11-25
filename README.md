@@ -116,6 +116,7 @@ cd ~/mewdeck && ./uninstall.sh
 | **`B`** | Back / cancel |
 | **`X`** | Context action: max resource, heal/revive cat, remove item/furniture, clear slot, manual backup |
 | **`Y`** | Switch **Home Storage / Adventure Backpack / Trash** (Items) · Mirror L↔R (Mutations) · Clear all disorders · Reload |
+| **View / `Select` (or `/`)** | Open built-in **Gamepad + Touch Search** (Items, Cats, Furniture, Abilities, Passives, Disorders, Mutations, Gear) |
 | **`☰` Menu** | Save all pending changes (with automatic backup) |
 
 *Touchscreen (including a top-right `×` quit button) and keyboard (`Arrows`, `Enter`, `Esc`, `Q`/`E`, `X`, `Y`, `Tab`) also work everywhere.*

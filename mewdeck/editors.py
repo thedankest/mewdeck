@@ -141,10 +141,191 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
     return y
 
 
+# --------------------------------------------------------------------------- built-in Gamepad + Touch Search Modal
+
+class SearchModal:
+    """Built-in 1080p gamepad + touch + physical keyboard search modal (no Steam OSK needed!)."""
+
+    ROWS = [
+        list("1234567890"),
+        list("QWERTYUIOP"),
+        list("ASDFGHJKL-"),
+        list("ZXCVBNM'+_"),
+        ["SPACE", "BACK", "CLEAR", "DONE"],
+    ]
+
+    def __init__(self, ui, app, title: str, initial: str, count_fn: Callable[[str], int],
+                 on_done: Callable[[str], None]) -> None:
+        self.ui = ui
+        self.app = app
+        self.title = title
+        self.query = initial
+        self.count_fn = count_fn
+        self.on_done = on_done
+        self.r = 1
+        self.c = 0
+        self.key_rects: list[tuple[pygame.Rect, int, int, str]] = []
+
+    def on_enter(self) -> None:
+        pass
+
+    def handle_raw_key(self, ev: pygame.event.Event) -> bool:
+        """Accept real physical keyboard typing while SearchModal is open."""
+        if ev.type != pygame.KEYDOWN:
+            return False
+        if ev.key == pygame.K_ESCAPE:
+            self.app.pop()
+            return True
+        if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._finish()
+            return True
+        if ev.key == pygame.K_BACKSPACE:
+            self.query = self.query[:-1]
+            return True
+        if ev.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+            return False  # let arrow keys navigate the on-screen grid too
+        ch = ev.unicode
+        if ch and ch.isprintable() and len(self.query) < 32:
+            self.query += ch
+            return True
+        return True  # consume other keys so Q/E/X/Y/S don't fire gamepad shortcuts
+
+    def _finish(self) -> None:
+        q = self.query.strip()
+        self.app.pop()
+        self.on_done(q)
+
+    def _activate_key(self, k: str) -> None:
+        if k == "SPACE":
+            if len(self.query) < 32 and self.query and not self.query.endswith(" "):
+                self.query += " "
+        elif k == "BACK":
+            self.query = self.query[:-1]
+        elif k == "CLEAR":
+            self.query = ""
+        elif k == "DONE":
+            self._finish()
+        else:
+            if len(self.query) < 32:
+                self.query += k.lower()
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        if btn == ui.UP:
+            self.r = (self.r - 1) % len(self.ROWS)
+            self.c = min(self.c, len(self.ROWS[self.r]) - 1)
+        elif btn == ui.DOWN:
+            self.r = (self.r + 1) % len(self.ROWS)
+            self.c = min(self.c, len(self.ROWS[self.r]) - 1)
+        elif btn == ui.LEFT:
+            self.c = (self.c - 1) % len(self.ROWS[self.r])
+        elif btn == ui.RIGHT:
+            self.c = (self.c + 1) % len(self.ROWS[self.r])
+        elif btn == ui.A:
+            self._activate_key(self.ROWS[self.r][self.c])
+        elif btn == ui.X:
+            self.query = self.query[:-1]
+        elif btn == ui.Y:
+            self._activate_key("SPACE")
+        elif btn == ui.START:
+            self._finish()
+        elif btn == ui.SELECT:
+            self.query = ""
+        elif btn == ui.B:
+            self.app.pop()
+
+    def click(self, pos) -> None:
+        for rect, rr, cc, k in self.key_rects:
+            if rect.collidepoint(pos):
+                self.r, self.c = rr, cc
+                self._activate_key(k)
+                return
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        self.app.stack[-2].draw(surf)
+        shade = pygame.Surface((ui.W, ui.H), pygame.SRCALPHA)
+        shade.fill((8, 5, 12, 210))
+        surf.blit(shade, (0, 0))
+
+        box = pygame.Rect(0, 0, 1180, 680)
+        box.center = (ui.W // 2, ui.H // 2)
+        ui.rrect(surf, box, ui.CARD, 28)
+        ui.rrect(surf, (box.x, box.y, box.w, 8), ui.ACCENT, 4)
+
+        ui.text(surf, self.title, (box.x + 44, box.y + 30), 34, ui.TEXT, "black")
+        matches = self.count_fn(self.query.strip())
+        mcol = ui.GOOD if matches else ui.BAD
+        ui.pill(surf, f"{matches} match{'es' if matches != 1 else ''}", box.right - 44, box.y + 46,
+                ui.mix(mcol, ui.CARD, .72), mcol, size=22, anchor="midright")
+
+        # Input field
+        inp = pygame.Rect(box.x + 44, box.y + 94, box.w - 88, 76)
+        ui.rrect(surf, inp, ui.DARK, 18)
+        pygame.draw.rect(surf, ui.ACCENT, inp, width=3, border_radius=18)
+        shown = (self.query + "_") if self.query else "Type with gamepad, touch, or keyboard…"
+        ui.text(surf, shown, (inp.x + 26, inp.centery), 34, ui.TEXT if self.query else ui.FAINT,
+                "bold" if self.query else "semi", anchor="midleft", maxw=inp.w - 52)
+
+        # Keyboard grid
+        self.key_rects = []
+        grid_x = box.x + 44
+        grid_w = box.w - 88
+        y = inp.bottom + 26
+        gap = 10
+        row_h = 80
+        for rr, keys in enumerate(self.ROWS):
+            if rr < 4:
+                kw = (grid_w - gap * (len(keys) - 1)) // len(keys)
+                x = grid_x
+                for cc, k in enumerate(keys):
+                    kr = pygame.Rect(x, y, kw, row_h)
+                    self.key_rects.append((kr, rr, cc, k))
+                    sel = rr == self.r and cc == self.c
+                    ui.rrect(surf, kr, ui.ACCENT if sel else ui.CARD_HI, 14)
+                    ui.text(surf, k, kr.center, 32, ui.DARK if sel else ui.TEXT, "black", anchor="center")
+                    x += kw + gap
+            else:
+                weights = [3, 2, 2, 3]
+                tot = sum(weights)
+                avail = grid_w - gap * (len(keys) - 1)
+                x = grid_x
+                labels = {"SPACE": "Space", "BACK": "Backspace", "CLEAR": "Clear", "DONE": "Search"}
+                for cc, (k, wt) in enumerate(zip(keys, weights)):
+                    kw = avail * wt // tot
+                    kr = pygame.Rect(x, y, kw, row_h)
+                    self.key_rects.append((kr, rr, cc, k))
+                    sel = rr == self.r and cc == self.c
+                    if k == "DONE":
+                        bg = ui.ACCENT if sel else ui.GOOD
+                        fg = ui.DARK
+                    elif k == "CLEAR":
+                        bg = ui.ACCENT if sel else ui.mix(ui.BAD, ui.CARD_HI, .55)
+                        fg = ui.DARK if sel else ui.TEXT
+                    else:
+                        bg = ui.ACCENT if sel else ui.CARD_HI
+                        fg = ui.DARK if sel else ui.TEXT
+                    ui.rrect(surf, kr, bg, 16)
+                    ui.text(surf, labels[k], kr.center, 28, fg, "black", anchor="center")
+                    x += kw + gap
+            y += row_h + gap
+
+    def hint_items(self):
+        return [("A", "Type"), ("X", "Backspace"), ("Y", "Space"), ("START", "Done"), ("B", "Cancel")]
+
+
+def draw_search_pill(ui, surf: pygame.Surface, x: int, cy: int, query: str, anchor: str = "midright") -> pygame.Rect:
+    """Draw a compact search status pill (clickable on touch/mouse, triggered with SELECT / '/')."""
+    lbl = f'Search: "{query}"' if query else "Search (View / /)"
+    bg = ui.ACCENT if query else ui.CARD_HI
+    fg = ui.DARK if query else ui.DIM
+    return ui.pill(surf, lbl, x, cy, bg, fg, size=20, anchor=anchor)
+
+
 # --------------------------------------------------------------------------- reusable CatalogPicker
 
 class CatalogPicker:
-    """Full-screen gamepad picker with category chips, unobfuscated list, and rich detail card."""
+    """Full-screen gamepad picker with category chips, search, unobfuscated list, and rich detail card."""
 
     def __init__(
         self,
@@ -174,6 +355,8 @@ class CatalogPicker:
         self.allow_clear = allow_clear
         self.clear_label = clear_label
         self.cat_idx = 0
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
         self.list = ui.ListView(row_h=82, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
         self._rebuild(select_current=True)
@@ -181,20 +364,41 @@ class CatalogPicker:
     def on_enter(self) -> None:
         pass
 
+    @staticmethod
+    def _matches(e: dict[str, Any], q: str) -> bool:
+        if not q:
+            return True
+        hay = " ".join(str(x) for x in (
+            e.get("name", ""), e.get("id", ""), e.get("class", ""), e.get("desc", ""),
+            e.get("desc2", ""), e.get("set", ""), gd.format_stats(e.get("stats")),
+        )).lower()
+        return all(tok in hay for tok in q.lower().split())
+
+    def _filtered(self, q: str) -> list[dict[str, Any]]:
+        cat = self.categories[self.cat_idx]
+        return [e for e in self.entries if (cat == "All" or self.cat_fn(e) == cat) and self._matches(e, q)]
+
     def _rebuild(self, select_current: bool = False) -> None:
         cat = self.categories[self.cat_idx]
         rows = []
-        if self.allow_clear and cat == "All":
+        if self.allow_clear and cat == "All" and not self.query:
             rows.append(self.ui.Row(self.clear_label, value="clear", color=self.ui.DIM, data=None))
-        for e in self.entries:
-            if cat == "All" or self.cat_fn(e) == cat:
-                rows.append(self.ui.Row(e["name"], data=e))
+        for e in self._filtered(self.query):
+            rows.append(self.ui.Row(e["name"], data=e))
         self.list.set_rows(rows)
         if select_current and self.current_id is not None:
             for idx, r in enumerate(rows):
                 if r.data and (r.data.get("id") == self.current_id or r.data.get("raw_id") == self.current_id):
                     self.list.sel = idx
                     break
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self._rebuild()
+        self.app.push(SearchModal(self.ui, self.app, f"Search {self.title}", self.query,
+                                  lambda q: len(self._filtered(q)), done))
 
     def handle(self, btn: str) -> None:
         ui = self.ui
@@ -206,6 +410,8 @@ class CatalogPicker:
             self.cat_idx = (self.cat_idx + d) % len(self.categories)
             self.list.sel = 0
             self._rebuild()
+        elif btn == ui.SELECT:
+            self._open_search()
         elif btn == ui.A and self.list.current is not None:
             picked = self.list.current.data
             self.app.pop()
@@ -214,9 +420,17 @@ class CatalogPicker:
             self.app.pop()
             self.on_pick(None)
         elif btn == ui.B:
-            self.app.pop()
+            if self.query:
+                self.query = ""
+                self.list.sel = 0
+                self._rebuild()
+            else:
+                self.app.pop()
 
     def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
         for r, i in self.chip_rects:
             if r.collidepoint(pos):
                 self.cat_idx = i
@@ -248,11 +462,14 @@ class CatalogPicker:
     def draw(self, surf) -> None:
         ui = self.ui
         area = pygame.Rect(ui.PAD, ui.HEADER_H + 18, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 18)
+        # Search pill on top-right of the left pane
+        self.search_rect = draw_search_pill(ui, surf, area.right - 620, area.y + 18, self.query, anchor="midright")
+        chips_right = self.search_rect.left - 14
         # Category chips
         self.chip_rects = []
         widths = [ui.F(23, "bold").size(c)[0] + 34 for c in self.categories]
         start = 0
-        while sum(widths[start:self.cat_idx + 1]) > area.w - 640 and start < self.cat_idx:
+        while sum(widths[start:self.cat_idx + 1]) > (chips_right - area.x - 26) and start < self.cat_idx:
             start += 1
         x = area.x
         if start:
@@ -261,7 +478,7 @@ class CatalogPicker:
         for i in range(start, len(self.categories)):
             sel = i == self.cat_idx
             w_est = ui.F(23, "bold").size(self.categories[i])[0] + 23
-            if x + w_est > area.right - 600:
+            if x + w_est > chips_right:
                 break
             r = ui.pill(surf, self.categories[i], x, area.y, ui.ACCENT if sel else ui.CARD,
                         ui.DARK if sel else ui.DIM, 23)
@@ -270,7 +487,10 @@ class CatalogPicker:
 
         list_w = area.w - 620
         la = pygame.Rect(area.x, area.y + 58, list_w, area.h - 58)
-        self.list.draw(surf, la, self._render_row)
+        if not self.list.rows:
+            ui.text(surf, f'No matches for "{self.query}"', (la.centerx, la.y + 100), 30, ui.FAINT, "bold", anchor="midtop")
+        else:
+            self.list.draw(surf, la, self._render_row)
 
         detail_box = pygame.Rect(area.right - 580, area.y, 580, area.h)
         cur = self.list.current.data if self.list.current else None
@@ -280,7 +500,7 @@ class CatalogPicker:
         out = [("A", "Choose")]
         if self.allow_clear:
             out.append(("X", "Clear"))
-        out += [("DPAD_LR", "Filter"), ("B", "Cancel")]
+        out += [("SELECT", "Search"), ("DPAD_LR", "Filter"), ("B", "Clear search" if self.query else "Cancel")]
         return out
 
 
@@ -889,6 +1109,8 @@ class FurnitureTab:
         self.catalog = sorted(gd.furniture().values(), key=lambda f: f["name"].lower())
         self.modes: list[tuple[str, str]] = []  # (key, label)
         self.m = 0
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
         self.list = ui.ListView(row_h=82, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
 
@@ -903,7 +1125,17 @@ class FurnitureTab:
         self.m = min(self.m, len(self.modes) - 1)
         self._rebuild()
 
-    def _rebuild(self) -> None:
+    @staticmethod
+    def _matches(info: dict[str, Any], q: str) -> bool:
+        if not q:
+            return True
+        hay = " ".join(str(x) for x in (
+            info.get("name", ""), info.get("id", ""), info.get("set", ""),
+            info.get("desc", ""), gd.format_stats(info.get("effects")),
+        )).lower()
+        return all(tok in hay for tok in q.lower().split())
+
+    def _rows_for(self, q: str) -> list:
         mk = self.modes[self.m][0]
         furn = self.app.snap.parsed["furniture"]
         rems = set(self.app.pending.furn_remove)
@@ -913,22 +1145,36 @@ class FurnitureTab:
                 if f["key"] in rems:
                     continue
                 info = gd.furniture_info(f["furniture_id"])
-                rows.append(self.ui.Row(info["name"], data=("owned", f, info)))
+                if self._matches(info, q):
+                    rows.append(self.ui.Row(info["name"], data=("owned", f, info)))
             for fid in self.app.pending.furn_add:
                 info = gd.furniture_info(fid)
-                rows.append(self.ui.Row(info["name"], data=("queued", fid, info)))
+                if self._matches(info, q):
+                    rows.append(self.ui.Row(info["name"], data=("queued", fid, info)))
         elif mk.startswith("room:"):
             rm = mk.split(":", 1)[1]
             for f in furn["placed"]:
                 if f["room"] == rm and f["key"] not in rems:
                     info = gd.furniture_info(f["furniture_id"])
-                    rows.append(self.ui.Row(info["name"], data=("owned", f, info)))
+                    if self._matches(info, q):
+                        rows.append(self.ui.Row(info["name"], data=("owned", f, info)))
         else:
             ef = mk.split(":", 1)[1]
             for info in self.catalog:
-                if ef == "all" or info.get("effects", {}).get(ef, 0) > 0:
+                if (ef == "all" or info.get("effects", {}).get(ef, 0) > 0) and self._matches(info, q):
                     rows.append(self.ui.Row(info["name"], data=("catalog", info["id"], info)))
-        self.list.set_rows(rows)
+        return rows
+
+    def _rebuild(self) -> None:
+        self.list.set_rows(self._rows_for(self.query))
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self._rebuild()
+        self.app.push(SearchModal(self.ui, self.app, "Search Furniture", self.query,
+                                  lambda q: len(self._rows_for(q)), done))
 
     def handle(self, btn: str) -> bool:
         ui = self.ui
@@ -937,6 +1183,12 @@ class FurnitureTab:
             self.list.move((-1 if btn == ui.UP else 1) * step)
         elif btn in (ui.LEFT, ui.RIGHT):
             self.m = (self.m + (1 if btn == ui.RIGHT else -1)) % len(self.modes)
+            self.list.sel = 0
+            self._rebuild()
+        elif btn == ui.SELECT:
+            self._open_search()
+        elif btn == ui.B and self.query:
+            self.query = ""
             self.list.sel = 0
             self._rebuild()
         elif btn == ui.A and self.list.current:
@@ -961,6 +1213,9 @@ class FurnitureTab:
         return True
 
     def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
         for r, i in self.chip_rects:
             if r.collidepoint(pos):
                 self.m = i
@@ -990,10 +1245,12 @@ class FurnitureTab:
 
     def draw(self, surf, area: pygame.Rect) -> None:
         ui = self.ui
+        self.search_rect = draw_search_pill(ui, surf, area.right - 580, area.y + 18, self.query, anchor="midright")
+        chips_right = self.search_rect.left - 14
         self.chip_rects = []
         widths = [ui.F(22, "bold").size(lbl)[0] + 32 for _, lbl in self.modes]
         start = 0
-        while sum(widths[start:self.m + 1]) > area.w - 600 and start < self.m:
+        while sum(widths[start:self.m + 1]) > (chips_right - area.x - 26) and start < self.m:
             start += 1
         x = area.x
         if start:
@@ -1002,7 +1259,7 @@ class FurnitureTab:
         for i in range(start, len(self.modes)):
             sel = i == self.m
             w_est = ui.F(22, "bold").size(self.modes[i][1])[0] + 22
-            if x + w_est > area.right - 560:
+            if x + w_est > chips_right:
                 break
             r = ui.pill(surf, self.modes[i][1], x, area.y, ui.ACCENT if sel else ui.CARD,
                         ui.DARK if sel else ui.DIM, 22)
@@ -1076,5 +1333,5 @@ class FurnitureTab:
     def hint_items(self):
         mk = self.modes[self.m][0]
         if mk.startswith("add:"):
-            return [("A", "Add to Storage"), ("X", "Remove queued"), ("DPAD_LR", "Filter"), ("B", "Saves")]
-        return [("X", "Remove"), ("DPAD_LR", "Room / Add"), ("B", "Saves")]
+            return [("A", "Add to Storage"), ("X", "Undo"), ("SELECT", "Search"), ("DPAD_LR", "Filter")]
+        return [("X", "Remove"), ("SELECT", "Search"), ("DPAD_LR", "Room / Add"), ("B", "Clear" if self.query else "Saves")]
