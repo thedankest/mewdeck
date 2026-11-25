@@ -21,10 +21,22 @@ import pygame
 
 from . import savefile as sf
 
-W, H = 1280, 800  # 16:10 like the Ally / Deck; pygame.SCALED fits it to any panel
+W, H = 1280, 800  # logical canvas; App widens/heightens it to the panel's aspect ratio
 HEADER_H, TABS_H, FOOTER_H = 84, 56, 60
 CONTENT_TOP = HEADER_H + TABS_H + 16
 CONTENT_BOTTOM = H - FOOTER_H - 14
+
+
+def configure_canvas(dw: int, dh: int) -> None:
+    """Match the logical canvas to the display aspect so nothing is letterboxed or stretched.
+    Height stays 800 for 16:10 and wider (16:9 -> 1422x800); narrower panels get a taller canvas."""
+    global W, H, CONTENT_BOTTOM
+    a = dw / dh if dw > 0 and dh > 0 else 1.6
+    if a >= 1.6:
+        W, H = min(1920, round(800 * a)), 800
+    else:
+        W, H = 1280, min(1280, round(1280 / a))
+    CONTENT_BOTTOM = H - FOOTER_H - 14
 PAD = 40
 
 # palette
@@ -75,39 +87,144 @@ REPEATABLE = {UP, DOWN, LEFT, RIGHT}
 
 # =========================================================================== input
 
+def log(*a) -> None:
+    print("[mewdeck]", *a, flush=True)
+
+
 class Input:
-    """Maps controller / keyboard events to logical buttons, with hold-to-repeat that speeds up."""
+    """Controller input by *polling state every frame* from every device SDL exposes.
+
+    Polling (instead of relying on CONTROLLERBUTTONDOWN events) keeps working when gamescope's window
+    focus or Steam's virtual-pad setup means events never arrive, and it treats devices SDL doesn't
+    recognise as a "game controller" as plain joysticks (Xbox layout) instead of ignoring them.
+    Keyboard still comes from events (Steam can map the pad to keys)."""
+
+    JOY_BUTTONS = {0: A, 1: B, 2: X, 3: Y, 4: LB, 5: RB, 6: SELECT, 7: START}
 
     def __init__(self) -> None:
         self.ctrl_mod = None
-        self.devices: dict[int, Any] = {}
         try:
             from pygame._sdl2 import controller  # type: ignore
 
             controller.init()
             self.ctrl_mod = controller
-        except Exception:  # noqa: BLE001
-            self.ctrl_mod = None
+        except Exception as e:  # noqa: BLE001
+            log("controller API unavailable, using joystick API:", e)
         pygame.joystick.init()
+        pygame.event.pump()  # Linux SDL2 needs an initial pump to populate joystick devices
+        self.pads: dict[int, tuple[str, Any, str]] = {}
+        self.ignored: set[int] = set()
+        self.prev: set[str] = set()
         self.held: dict[str, float] = {}
         self.count: dict[str, int] = {}
-        self.axis_dir: dict[str, str | None] = {"x": None, "y": None}
+        self.logged_events = 0
+        self.rescan()
+
+    # devices
+    def rescan(self) -> None:
+        seen = set()
         for i in range(pygame.joystick.get_count()):
-            self._open(i)
+            try:
+                j = pygame.joystick.Joystick(i)
+                iid = j.get_instance_id()
+                seen.add(iid)
+                if iid in self.pads or iid in self.ignored:
+                    continue
+                name = j.get_name()
+                if self.ctrl_mod and self.ctrl_mod.is_controller(i):
+                    self.pads[iid] = ("ctrl", self.ctrl_mod.Controller(i), name)
+                else:
+                    low = name.lower()
+                    if j.get_numbuttons() < 4 or any(w in low for w in ("motion", "imu", "accel", "gyro", "touchpad")):
+                        self.ignored.add(iid)
+                        log(f"pad #{i} '{name}' skipped (not a gamepad: buttons={j.get_numbuttons()} axes={j.get_numaxes()})")
+                        continue
+                    self.pads[iid] = ("joy", j, name)
+                log(f"pad #{i} '{name}' guid={j.get_guid()} as {self.pads[iid][0]} "
+                    f"buttons={j.get_numbuttons()} hats={j.get_numhats()} axes={j.get_numaxes()}")
+            except pygame.error as e:
+                log(f"pad #{i} open failed: {e}")
+        self.ignored &= seen
+        for iid in list(self.pads):
+            if iid not in seen:
+                log(f"pad '{self.pads[iid][2]}' removed")
+                del self.pads[iid]
 
-    def _open(self, index: int) -> None:
-        try:
-            if self.ctrl_mod and self.ctrl_mod.is_controller(index):
-                c = self.ctrl_mod.Controller(index)
-                self.devices[c.as_joystick().get_instance_id()] = c
-            elif not self.ctrl_mod:
-                j = pygame.joystick.Joystick(index)
-                self.devices[j.get_instance_id()] = j
-        except pygame.error:
-            pass
+    @property
+    def names(self) -> list[str]:
+        return [p[2] for p in self.pads.values()]
 
+    def _state(self, kind: str, dev: Any) -> set[str]:
+        s: set[str] = set()
+        if kind == "ctrl":
+            for btn, name in ((pygame.CONTROLLER_BUTTON_A, A), (pygame.CONTROLLER_BUTTON_B, B),
+                              (pygame.CONTROLLER_BUTTON_X, X), (pygame.CONTROLLER_BUTTON_Y, Y),
+                              (pygame.CONTROLLER_BUTTON_LEFTSHOULDER, LB),
+                              (pygame.CONTROLLER_BUTTON_RIGHTSHOULDER, RB),
+                              (pygame.CONTROLLER_BUTTON_START, START), (pygame.CONTROLLER_BUTTON_BACK, SELECT),
+                              (pygame.CONTROLLER_BUTTON_DPAD_UP, UP), (pygame.CONTROLLER_BUTTON_DPAD_DOWN, DOWN),
+                              (pygame.CONTROLLER_BUTTON_DPAD_LEFT, LEFT), (pygame.CONTROLLER_BUTTON_DPAD_RIGHT, RIGHT)):
+                if dev.get_button(btn):
+                    s.add(name)
+            ax = dev.get_axis(pygame.CONTROLLER_AXIS_LEFTX) / 32767
+            ay = dev.get_axis(pygame.CONTROLLER_AXIS_LEFTY) / 32767
+        else:
+            n = dev.get_numbuttons()
+            for idx, name in self.JOY_BUTTONS.items():
+                if idx < n and dev.get_button(idx):
+                    s.add(name)
+            if dev.get_numhats():
+                hx, hy = dev.get_hat(0)
+                if hx:
+                    s.add(RIGHT if hx > 0 else LEFT)
+                if hy:
+                    s.add(UP if hy > 0 else DOWN)
+            ax = dev.get_axis(0) if dev.get_numaxes() > 0 else 0.0
+            ay = dev.get_axis(1) if dev.get_numaxes() > 1 else 0.0
+        if ax > 0.55:
+            s.add(RIGHT)
+        elif ax < -0.55:
+            s.add(LEFT)
+        if ay > 0.55:
+            s.add(DOWN)
+        elif ay < -0.55:
+            s.add(UP)
+        return s
+
+    def poll(self) -> list[str]:
+        cur: set[str] = set()
+        for kind, dev, _ in list(self.pads.values()):
+            try:
+                cur |= self._state(kind, dev)
+            except pygame.error:
+                continue
+        now = time.time()
+        out = []
+        for b in sorted(cur - self.prev):
+            out.append(b)
+            if b in REPEATABLE:
+                self.held[b] = now + 0.36
+                self.count[b] = 0
+        for b in self.prev - cur:
+            self.held.pop(b, None)
+        for b, due in list(self.held.items()):
+            if now >= due:
+                out.append(b)
+                self.count[b] = self.count.get(b, 0) + 1
+                self.held[b] = now + (0.07 if self.count[b] < 12 else 0.04)
+        if out and self.logged_events < 40:
+            self.logged_events += 1
+            log("pad input:", out)
+        self.prev = cur
+        return out
+
+    # events (keyboard + hotplug)
     def translate(self, ev: pygame.event.Event) -> list[str]:
         t = ev.type
+        if t in (pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED, getattr(pygame, "CONTROLLERDEVICEADDED", -1),
+                 getattr(pygame, "CONTROLLERDEVICEREMOVED", -1)):
+            self.rescan()
+            return []
         if t == pygame.KEYDOWN:
             km = {pygame.K_UP: UP, pygame.K_DOWN: DOWN, pygame.K_LEFT: LEFT, pygame.K_RIGHT: RIGHT,
                   pygame.K_RETURN: A, pygame.K_SPACE: A, pygame.K_KP_ENTER: A,
@@ -117,81 +234,14 @@ class Input:
             name = km.get(ev.key)
             if name in REPEATABLE:
                 self.count[name] = self.count.get(name, 0) + 1 if getattr(ev, "repeat", False) else 0
+            if name and self.logged_events < 40:
+                self.logged_events += 1
+                log("key input:", name)
             return [name] if name else []
-        if t == pygame.KEYUP:
-            return []
-        if self.ctrl_mod:
-            if t == pygame.CONTROLLERDEVICEADDED:
-                self._open(ev.device_index)
-            elif t == pygame.CONTROLLERDEVICEREMOVED:
-                self.devices.pop(ev.instance_id, None)
-            elif t == pygame.CONTROLLERBUTTONDOWN:
-                bm = {pygame.CONTROLLER_BUTTON_A: A, pygame.CONTROLLER_BUTTON_B: B,
-                      pygame.CONTROLLER_BUTTON_X: X, pygame.CONTROLLER_BUTTON_Y: Y,
-                      pygame.CONTROLLER_BUTTON_LEFTSHOULDER: LB, pygame.CONTROLLER_BUTTON_RIGHTSHOULDER: RB,
-                      pygame.CONTROLLER_BUTTON_START: START, pygame.CONTROLLER_BUTTON_BACK: SELECT,
-                      pygame.CONTROLLER_BUTTON_DPAD_UP: UP, pygame.CONTROLLER_BUTTON_DPAD_DOWN: DOWN,
-                      pygame.CONTROLLER_BUTTON_DPAD_LEFT: LEFT, pygame.CONTROLLER_BUTTON_DPAD_RIGHT: RIGHT}
-                if ev.button in bm:
-                    return [self._press(bm[ev.button])]
-            elif t == pygame.CONTROLLERBUTTONUP:
-                bm = {pygame.CONTROLLER_BUTTON_DPAD_UP: UP, pygame.CONTROLLER_BUTTON_DPAD_DOWN: DOWN,
-                      pygame.CONTROLLER_BUTTON_DPAD_LEFT: LEFT, pygame.CONTROLLER_BUTTON_DPAD_RIGHT: RIGHT}
-                if ev.button in bm:
-                    self.held.pop(bm[ev.button], None)
-            elif t == pygame.CONTROLLERAXISMOTION and ev.axis in (pygame.CONTROLLER_AXIS_LEFTX,
-                                                                  pygame.CONTROLLER_AXIS_LEFTY):
-                return self._axis("x" if ev.axis == pygame.CONTROLLER_AXIS_LEFTX else "y", ev.value / 32767)
-        else:
-            if t == pygame.JOYDEVICEADDED:
-                self._open(ev.device_index)
-            elif t == pygame.JOYBUTTONDOWN:  # Xbox layout as exposed by Steam Input / xpad
-                bm = {0: A, 1: B, 2: X, 3: Y, 4: LB, 5: RB, 6: SELECT, 7: START}
-                if ev.button in bm:
-                    return [self._press(bm[ev.button])]
-            elif t == pygame.JOYHATMOTION:
-                for n in (UP, DOWN, LEFT, RIGHT):
-                    self.held.pop(n, None)
-                x, y = ev.value
-                out = []
-                if x:
-                    out.append(self._press(RIGHT if x > 0 else LEFT))
-                if y:
-                    out.append(self._press(UP if y > 0 else DOWN))
-                return out
-            elif t == pygame.JOYAXISMOTION and ev.axis in (0, 1):
-                return self._axis("x" if ev.axis == 0 else "y", ev.value)
         return []
 
-    def _press(self, name: str) -> str:
-        if name in REPEATABLE:
-            self.held[name] = time.time() + 0.36
-            self.count[name] = 0
-        return name
-
-    def _axis(self, ax: str, v: float) -> list[str]:
-        neg, pos = (LEFT, RIGHT) if ax == "x" else (UP, DOWN)
-        new = pos if v > 0.55 else neg if v < -0.55 else None
-        old = self.axis_dir[ax]
-        if new == old:
-            return []
-        if old:
-            self.held.pop(old, None)
-        self.axis_dir[ax] = new
-        return [self._press(new)] if new else []
-
-    def repeats(self) -> list[str]:
-        now = time.time()
-        out = []
-        for name, due in list(self.held.items()):
-            if now >= due:
-                out.append(name)
-                self.count[name] = self.count.get(name, 0) + 1
-                self.held[name] = now + (0.07 if self.count[name] < 12 else 0.04)
-        return out
-
     def mult(self, name: str) -> int:
-        """Value-step multiplier while a direction is held: 1 → 10 → 100."""
+        """Value-step multiplier while a direction is held: 1 -> 10 -> 100."""
         n = self.count.get(name, 0)
         return 1 if n < 10 else 10 if n < 28 else 100
 
@@ -1407,12 +1457,25 @@ class Confirm(Screen):
 class App:
     def __init__(self, windowed: bool = False, save: Path | None = None) -> None:
         global F
-        os.environ.setdefault("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1")
+        for k, v in (("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1"),
+                     ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1"),  # gamescope focus quirks
+                     ("PYGAME_FORCE_SCALE", "photo"),  # smooth (linear) scaling instead of nearest-neighbour
+                     ("SDL_RENDER_SCALE_QUALITY", "linear")):
+            os.environ.setdefault(k, v)
         pygame.init()
         pygame.display.set_caption("MewDeck")
+        sizes = pygame.display.get_desktop_sizes() or [(1280, 800)]
+        log(f"pygame {pygame.version.ver} SDL {'.'.join(map(str, pygame.get_sdl_version()))} "
+            f"driver={pygame.display.get_driver()} desktop={sizes} "
+            f"SteamAppId={os.environ.get('SteamAppId')} gamescope={'GAMESCOPE_WAYLAND_DISPLAY' in os.environ}")
+        if not windowed:
+            configure_canvas(*sizes[0])
         flags = pygame.SCALED | (0 if windowed else pygame.FULLSCREEN)
-        self.screen = pygame.display.set_mode((W, H), flags, vsync=1) if not windowed else \
-            pygame.display.set_mode((W, H), flags)
+        try:
+            self.screen = pygame.display.set_mode((W, H), flags, vsync=1)
+        except pygame.error:
+            self.screen = pygame.display.set_mode((W, H), flags)
+        log(f"canvas {W}x{H} window={pygame.display.get_window_size()}")
         pygame.key.set_repeat(340, 55)
         pygame.mouse.set_visible(windowed)
         F = Fonts()
@@ -1564,7 +1627,12 @@ class App:
         if crumbs:
             text(s, "  /  ".join(crumbs), (r.right + 22, HEADER_H // 2 + 2), 22, DIM, "bold", anchor="midleft",
                  maxw=560)
-        x = W - PAD
+        self.quit_rect = pygame.Rect(W - PAD - 44, HEADER_H // 2 - 22, 44, 44)
+        qr = self.quit_rect
+        rrect(s, qr, CARD, 12)
+        for d in (-1, 1):
+            pygame.draw.line(s, DIM, (qr.centerx - 9, qr.centery - 9 * d), (qr.centerx + 9, qr.centery + 9 * d), 4)
+        x = qr.x - 12
         if self._game_running:
             pr = pill(s, "GAME RUNNING · close it to save", x, HEADER_H // 2, BAD, size=18, anchor="midright")
             x = pr.x - 10
@@ -1579,6 +1647,10 @@ class App:
         for btn, label in items:
             x = glyph(s, btn, x, cy) + 10
             x = text(s, label, (x, cy), 20, DIM, "bold", anchor="midleft").right + 28
+        names = self.input.names
+        status = names[0] if names else "No controller found · touch works"
+        text(s, status, (W - PAD, cy), 16, FAINT if names else BAD, "bold", anchor="midright",
+             maxw=max(60, W - PAD - x - 10))
 
     def _toasts(self, s) -> None:
         now = time.time()
@@ -1610,23 +1682,40 @@ class App:
         self._toasts(s)
         pygame.display.flip()
 
+    def click(self, pos) -> None:
+        if getattr(self, "quit_rect", None) and self.quit_rect.collidepoint(pos):
+            if not self.pending.empty():
+                self.confirm("Quit MewDeck?", f"{self.pending.count()} unsaved change(s) will be lost.",
+                             self.quit, yes="Quit", danger=True)
+            else:
+                self.quit()
+            return
+        self.top().click(pos)
+
+    def quit(self) -> None:
+        self.running = False
+
     def run(self) -> None:
         while self.running:
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     self.running = False
-                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                    self.top().click(ev.pos)
-                elif ev.type == pygame.MOUSEWHEEL:
+                elif ev.type == pygame.FINGERDOWN:  # touchscreen (normalised coords)
+                    self.click((ev.x * W, ev.y * H))
+                elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and not getattr(ev, "touch", False):
+                    self.click(ev.pos)
+                elif ev.type == pygame.MOUSEWHEEL and not getattr(ev, "touch", False):
                     self.top().handle(UP if ev.y > 0 else DOWN)
                 else:
                     for b in self.input.translate(ev):
                         self.top().handle(b)
-            for b in self.input.repeats():
-                self.top().handle(b)
+            for b in self.input.poll():
+                if self.running:
+                    self.top().handle(b)
             now = time.time()
             if now - self._last_poll > 2:
                 self._last_poll = now
+                self.input.rescan()
                 self._game_running = sf.game_running()
                 if self.save and self.snap and not isinstance(self.top(), Confirm):
                     try:  # the game saved behind our back -> refresh; pending offsets would be stale

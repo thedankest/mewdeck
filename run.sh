@@ -21,9 +21,14 @@ fi
 
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
 export SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=1
+export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
+export PYTHONUNBUFFERED=1
+# keep the log small
+if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || stat -f %z "$LOG")" -gt 1000000 ]; then mv -f "$LOG" "$LOG.old"; fi
 # Interactive terminal: show output. Launched from Steam/desktop: log to file.
 if [ -t 1 ]; then
   exec "$VENV/bin/python" -m mewdeck "$@"
 else
+  { echo; echo "=== $(date) MewDeck start ==="; } >>"$LOG"
   exec "$VENV/bin/python" -m mewdeck "$@" >>"$LOG" 2>&1
 fi

@@ -12,9 +12,15 @@ def main() -> None:
     ap.add_argument("--windowed", action="store_true", help="run in a window instead of fullscreen")
     ap.add_argument("--save", type=Path, help="open this .sav directly")
     ap.add_argument("--list", action="store_true", help="print detected saves and exit")
+    ap.add_argument("--diag", action="store_true",
+                    help="print display/controller info, then show live pad input for 20 s")
     ap.add_argument("--reset-steven", type=Path, metavar="SAV",
                     help="headless: back up SAV, reset the Steven penalty, exit")
     args = ap.parse_args()
+
+    if args.diag:
+        diag()
+        return
 
     if args.list or args.reset_steven:
         from . import savefile as sf
@@ -37,6 +43,37 @@ def main() -> None:
     from .ui import App
 
     App(windowed=args.windowed, save=args.save).run()
+
+
+def diag() -> None:
+    import os
+    import time
+
+    os.environ.setdefault("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1")
+    os.environ.setdefault("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")
+    import pygame
+
+    from . import ui
+
+    pygame.init()
+    print("env:", {k: v for k, v in os.environ.items() if k.startswith(("SDL", "Steam", "STEAM", "GAMESCOPE", "WAYLAND",
+                                                                           "DISPLAY", "XDG_SESSION"))})
+    print("desktop sizes:", pygame.display.get_desktop_sizes(), "driver:", pygame.display.get_driver())
+    screen = pygame.display.set_mode((640, 200))
+    inp = ui.Input()
+    print("pads:", inp.names or "NONE")
+    print("press buttons / move the stick for 20 s (Ctrl+C to stop)…")
+    end = time.time() + 20
+    while time.time() < end:
+        for ev in pygame.event.get():
+            if ev.type not in (pygame.MOUSEMOTION, pygame.WINDOWMOVED, pygame.ACTIVEEVENT):
+                print("event:", pygame.event.event_name(ev.type), ev.dict)
+            inp.translate(ev)
+        for b in inp.poll():
+            print("button:", b)
+        screen.fill((30, 20, 40))
+        pygame.display.flip()
+        time.sleep(1 / 60)
 
 
 if __name__ == "__main__":
