@@ -434,6 +434,16 @@ def patch_cat_blob(wrapped: bytes, changes: dict[str, Any], current_day: int, ne
         for i in range(14):
             struct.pack_into("<I", mid, rmbase + 16 + i * 20 + 8, 0)
 
+    # Strip -2 (0xFFFFFFFE) missing-part birth defects if requested
+    if changes.get("strip_defects"):
+        cur_coat = _u32(mid, rmbase + 4)
+        for i, slot_key in enumerate(MUT_SLOT_KEYS):
+            so = rmbase + 16 + i * 20
+            if _u32(mid, so) == 0xFFFFFFFE:
+                struct.pack_into("<I", mid, so, 1)
+                if _u32(mid, so + 4) == 0xFFFFFFFE:
+                    struct.pack_into("<I", mid, so + 4, 0 if slot_key == "mouth" else cur_coat)
+
     # Stats / level_bonuses / injury_mods (relative offset stats_off - after_tag)
     rstats = stats_off - after_tag
     if "stats" in changes:
@@ -720,3 +730,94 @@ def parse_pedigree_blob(raw: Any) -> dict[str, Any]:
         return {"parents": parents, "pair_coi": pair_coi}
     except Exception:
         return empty
+
+
+# --------------------------------------------------------------------------- unlocks & house_unlocks (exact round-trip)
+
+ALL_HOUSE_UPGRADES = (
+    "Default",
+    "SmallHouse_Attic",
+    "MediumHouse",
+    "MediumHouse_SmallRoom",
+    "LargeHouse",
+    "LargeHouse_Attic",
+    "LargeHouse_Basement",
+)
+
+
+def parse_unlocks_blob(raw: Any) -> dict[str, Any]:
+    """Deterministically parse `files['unlocks']` (u32 ver + 7 u64-counted string vectors)."""
+    empty: dict[str, Any] = {"version": 3, "sections": [[] for _ in range(7)], "classes": [], "raw_tail": b""}
+    if not raw:
+        return empty
+    b = _mp.to_bytes(raw)
+    if len(b) < 12:
+        return empty
+    try:
+        ver = _u32(b, 0)
+        o = 4
+        sections: list[list[str]] = []
+        while o + 8 <= len(b) and len(sections) < 7:
+            cnt = _u64(b, o)
+            if cnt > 4096:
+                break
+            o += 8
+            vec: list[str] = []
+            for _ in range(cnt):
+                s, o = _read_u64_str(b, o)
+                vec.append(s)
+            sections.append(vec)
+        return {
+            "version": ver,
+            "sections": sections,
+            "classes": list(sections[0]) if sections else [],
+            "raw_tail": b[o:],
+        }
+    except Exception:
+        return empty
+
+
+def serialize_unlocks_blob(u: dict[str, Any]) -> bytes:
+    out = bytearray(struct.pack("<I", int(u.get("version", 3))))
+    sections = list(u.get("sections") or [])
+    if sections and "classes" in u:
+        sections[0] = list(u["classes"])
+    for vec in sections:
+        out.extend(struct.pack("<Q", len(vec)))
+        for s in vec:
+            out.extend(_pack_u64_str(str(s)))
+    out.extend(u.get("raw_tail") or b"")
+    return bytes(out)
+
+
+def parse_house_unlocks_blob(raw: Any) -> dict[str, Any]:
+    """Deterministically parse `files['house_unlocks']` (u32 ver + house_id str + u64-vec + tail)."""
+    empty: dict[str, Any] = {"version": 1, "house": "House1", "upgrades": [], "raw_tail": b"\x00" * 8}
+    if not raw:
+        return empty
+    b = _mp.to_bytes(raw)
+    if len(b) < 20:
+        return empty
+    try:
+        ver = _u32(b, 0)
+        house, o = _read_u64_str(b, 4)
+        cnt = _u64(b, o)
+        o += 8
+        upgrades: list[str] = []
+        for _ in range(cnt):
+            s, o = _read_u64_str(b, o)
+            upgrades.append(s)
+        return {"version": ver, "house": house, "upgrades": upgrades, "raw_tail": b[o:]}
+    except Exception:
+        return empty
+
+
+def serialize_house_unlocks_blob(hu: dict[str, Any]) -> bytes:
+    out = bytearray(struct.pack("<I", int(hu.get("version", 1))))
+    out.extend(_pack_u64_str(str(hu.get("house") or "House1")))
+    ups = list(hu.get("upgrades") or [])
+    out.extend(struct.pack("<Q", len(ups)))
+    for s in ups:
+        out.extend(_pack_u64_str(str(s)))
+    out.extend(hu.get("raw_tail") if hu.get("raw_tail") is not None else (b"\x00" * 8))
+    return bytes(out)

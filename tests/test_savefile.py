@@ -269,6 +269,63 @@ def test_real_save_pedigree_and_breeding_organizer():
             assert s2.parsed["all_cats"][ck]["room"] == want_room
 
 
+def test_real_save_v14_unlocks_batch_clone_and_atlases():
+    """Verify all 5 wiki sprite atlases, unlocks/house_unlocks round-trip, batch actions, clone_save & backup diff."""
+    import json
+    from mewdeck import catblob as cb, gamedata as gd, presets as pr
+    real = os.environ.get("MEWDECK_TEST_SAVE")
+    if not real or not Path(real).is_file():
+        return
+
+    # All 5 offline wiki sprite atlases exist and are populated
+    for rel, min_cnt in (
+        ("items/item_icons", 950),
+        ("abilities/ability_icons", 1800),
+        ("abilities/disorder_icons", 125),
+        ("furniture/furniture_icons", 630),
+        ("class_icons", 14),
+    ):
+        assert (gd.DATA_DIR / f"{rel}.png").is_file(), f"missing {rel}.png"
+        m = json.loads((gd.DATA_DIR / f"{rel}.json").read_text(encoding="utf-8"))
+        assert len(m["icons"]) >= min_cnt, f"{rel} has only {len(m['icons'])} icons"
+
+    assert len(pr.armor_sets_catalog()) >= 80
+
+    tmp = Path(tempfile.mkdtemp())
+    p = tmp / "steamcampaign01.sav"
+    shutil.copy2(real, p)
+
+    # Clone save slot
+    cloned = sf.clone_save(p)
+    assert cloned.name == "steamcampaign02.sav" and cloned.is_file()
+
+    snap1 = sf.snapshot(p)
+    assert len(snap1.parsed["unlocks"]["classes"]) >= 1
+    assert len(snap1.parsed["house_unlocks"]["upgrades"]) >= 1
+
+    # Unlock all 14 classes + batch party disorders + max party stats + strip birth defects
+    ch = sf.Changes(
+        unlocks_classes=list(cb.CAT_CLASSES),
+        unlocks_house=list(dict.fromkeys(snap1.parsed["house_unlocks"]["upgrades"] + ["LargeHouse"])),
+        clear_party_disorders=True,
+        max_party_stats=True,
+        strip_all_defects=True,
+    )
+    bak = sf.apply_changes(p, ch, reason="v14-test")
+    snap2 = sf.snapshot(p)
+    assert snap2.parsed["unlocks"]["classes"] == list(cb.CAT_CLASSES)
+    assert "LargeHouse" in snap2.parsed["house_unlocks"]["upgrades"]
+    for c in snap2.parsed["cats"]:
+        if c["room"] == "(ADVENTURE)":
+            assert c["abilities"]["disorder"] == [None, None]
+            assert all(v == 7 for v in c["stats"].values())
+        assert all(gd.signed_mut_id(v) != -2 for k, v in c["mutations"].items() if k != "coat")
+
+    # Backup diff works cleanly
+    diff = sf.diff_snapshots(snap2, sf.snapshot(bak))
+    assert len(diff) >= 8
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

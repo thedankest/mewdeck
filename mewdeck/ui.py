@@ -26,6 +26,8 @@ from . import editors as ed
 from . import gamedata as gd
 from . import organizer as org
 from . import savefile as sf
+from . import sfx
+from . import updater as upd
 
 W, H = 1920, 1080  # native 1080p (16:9, ROG Ally native panel)
 HEADER_H, TABS_H, FOOTER_H = 114, 76, 80
@@ -33,29 +35,31 @@ CONTENT_TOP = HEADER_H + TABS_H + 22
 CONTENT_BOTTOM = H - FOOTER_H - 20
 PAD = 54
 
-# palette
-BG_TOP, BG_BOT = (34, 24, 44), (15, 12, 21)
-CARD = (40, 32, 52)
-CARD_HI = (60, 47, 80)
-LINE = (82, 68, 104)
-TEXT = (246, 240, 252)
-DIM = (166, 152, 186)
-FAINT = (110, 98, 130)
-ACCENT = (255, 180, 76)
-GOOD = (104, 216, 148)
-BAD = (248, 100, 100)
-INFO = (112, 172, 255)
-DARK = (20, 16, 26)
+# Mewgenics in-game sketchbook ink & warm cardboard/paper palette
+BG_TOP, BG_BOT = (40, 35, 30), (24, 21, 18)
+CARD = (58, 51, 45)
+CARD_HI = (82, 72, 62)
+WELL = (32, 28, 25)
+INK = (16, 14, 12)
+LINE = (116, 104, 92)
+TEXT = (246, 239, 224)
+DIM = (188, 176, 158)
+FAINT = (136, 124, 108)
+ACCENT = (244, 182, 72)
+GOOD = (108, 208, 130)
+BAD = (234, 94, 86)
+INFO = (114, 176, 238)
+DARK = (20, 17, 15)
 
-BTN_COL = {"A": (96, 196, 116), "B": (232, 88, 88), "X": (82, 146, 236), "Y": (236, 204, 74)}
+BTN_COL = {"A": (104, 198, 120), "B": (232, 92, 84), "X": (96, 158, 232), "Y": (242, 198, 76)}
 CLASS_COL = {
-    "Fighter": (232, 98, 82), "Hunter": (120, 196, 96), "Mage": (96, 150, 250), "Tank": (130, 150, 178),
-    "Thief": (176, 120, 228), "Medic": (244, 132, 176), "Monk": (246, 166, 74), "Butcher": (196, 70, 70),
-    "Druid": (156, 206, 70), "Tinkerer": (70, 196, 186), "Necromancer": (150, 98, 196),
-    "Psychic": (226, 96, 210), "Jester": (240, 210, 80), "Colorless": (150, 142, 164),
+    "Fighter": (228, 104, 86), "Hunter": (124, 194, 102), "Mage": (106, 154, 240), "Tank": (154, 146, 124),
+    "Thief": (236, 218, 138), "Medic": (236, 228, 216), "Monk": (182, 176, 168), "Butcher": (196, 78, 86),
+    "Druid": (146, 186, 84), "Tinkerer": (92, 206, 186), "Necromancer": (144, 108, 176),
+    "Psychic": (196, 114, 194), "Jester": (242, 198, 82), "Colorless": (162, 152, 142),
 }
-SEX_COL = {"Male": (100, 160, 250), "Female": (246, 128, 176), "Ditto": (186, 140, 240)}
-RARITY_COL = {"common": (200, 192, 214), "uncommon": GOOD, "rare": INFO, "very_rare": (196, 130, 255),
+SEX_COL = {"Male": (110, 168, 242), "Female": (240, 132, 168), "Ditto": (186, 142, 228)}
+RARITY_COL = {"common": (208, 198, 184), "uncommon": GOOD, "rare": INFO, "very_rare": (198, 138, 240),
               "legendary": ACCENT}
 
 STATS = ["STR", "DEX", "CON", "INT", "SPD", "CHA", "LUCK"]
@@ -234,7 +238,7 @@ class Input:
                   pygame.K_ESCAPE: B, pygame.K_BACKSPACE: B, pygame.K_x: X, pygame.K_y: Y,
                   pygame.K_q: LB, pygame.K_e: RB, pygame.K_PAGEUP: LT, pygame.K_PAGEDOWN: RT,
                   pygame.K_LEFTBRACKET: LT, pygame.K_RIGHTBRACKET: RT,
-                  pygame.K_TAB: START, pygame.K_s: START, pygame.K_BACKQUOTE: SELECT,
+                  pygame.K_TAB: START, pygame.K_BACKQUOTE: SELECT,
                   pygame.K_SLASH: SELECT, pygame.K_f: SELECT}
             name = km.get(ev.key)
             if name in REPEATABLE:
@@ -293,8 +297,13 @@ def text(surf: pygame.Surface, s: str, pos: tuple[float, float], size: int = 28,
     return r
 
 
-def rrect(surf, rect, color, radius=14, width=0) -> None:
-    pygame.draw.rect(surf, color, rect, width=width, border_radius=radius)
+def rrect(surf, rect, color, radius=14, width=0, ink: bool | None = None, shadow: bool = False) -> None:
+    rr = pygame.Rect(rect)
+    if width == 0 and (shadow or (ink is None and radius >= 20 and rr.w >= 160 and rr.h >= 60)):
+        pygame.draw.rect(surf, INK, rr.move(4, 5), border_radius=radius)
+    pygame.draw.rect(surf, color, rr, width=width, border_radius=radius)
+    if width == 0 and (ink or (ink is None and radius >= 14 and rr.w >= 40 and rr.h >= 24)):
+        pygame.draw.rect(surf, INK, rr, width=3, border_radius=radius)
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -309,7 +318,8 @@ def pill(surf, label: str, x: float, y: float, bg, fg=DARK, size=20, anchor="top
     img = F(size, weight).render(label, True, fg)
     r = pygame.Rect(0, 0, img.get_width() + size, img.get_height() + 4)
     setattr(r, anchor, (round(x), round(y)))
-    rrect(surf, r, bg, r.h // 2)
+    pygame.draw.rect(surf, bg, r, border_radius=r.h // 2)
+    pygame.draw.rect(surf, INK, r, width=2, border_radius=r.h // 2)
     surf.blit(img, img.get_rect(center=r.center))
     return r
 
@@ -437,9 +447,8 @@ class RectAnim:
 
 
 def focus_ring(surf, rect: pygame.Rect, radius=22) -> None:
-    glow = rect.inflate(14, 14)
-    pygame.draw.rect(surf, mix(ACCENT, BG_TOP, .7), glow, width=5, border_radius=radius + 7)
-    pygame.draw.rect(surf, ACCENT, rect.inflate(3, 3), width=4, border_radius=radius + 2)
+    pygame.draw.rect(surf, INK, rect.inflate(10, 10), width=4, border_radius=radius + 5)
+    pygame.draw.rect(surf, ACCENT, rect.inflate(4, 4), width=5, border_radius=radius + 2)
 
 
 # =========================================================================== list widget
@@ -586,6 +595,17 @@ class SavePicker(Screen):
             self.list.move(-1 if btn == UP else 1)
         elif btn == A and self.list.current and self.list.current.enabled:
             self.app.open_save(self.list.current.data[0])
+        elif btn == X and self.list.current and self.list.current.enabled:
+            src: Path = self.list.current.data[0]
+            def do_clone():
+                try:
+                    dst = sf.clone_save(src)
+                    self.refresh()
+                    self.app.toast(f"Cloned » {dst.name}", GOOD, 3.0)
+                except Exception as e:  # noqa: BLE001
+                    self.app.toast(f"Clone failed: {e}", BAD, 5.0)
+            self.app.confirm(f"Clone {src.stem}?", "Creates an exact copy in the next free save slot so you can experiment safely.",
+                             do_clone, yes="Clone slot")
         elif btn == Y:
             self.refresh()
             self.app.toast("Rescanned")
@@ -642,7 +662,7 @@ class SavePicker(Screen):
             text(surf, str(root), (card.x + 54, y), 24, DIM, maxw=card.w - 108)
 
     def hint_items(self):
-        return [("A", "Open"), ("Y", "Rescan"), ("B", "Quit")]
+        return [("A", "Open"), ("X", "Clone Slot"), ("Y", "Rescan"), ("B", "Quit")]
 
 
 # =========================================================================== hub + tabs
@@ -791,10 +811,18 @@ class HomeTab(Tab):
 
     def on_enter(self) -> None:
         rows = [Row(lbl, data=spec) for spec in self.RESOURCES for lbl in (spec[1],)]
+        upd_info = getattr(self.app, "update_info", None)
+        upd_lbl = f"Install Update ({upd_info['tag']})" if (upd_info and upd_info.get("newer")) else f"Check for Updates (v{upd.VERSION})"
         rows += [
+            Row("Class & House Unlocks", data=("tool", "unlocks")),
+            Row("Batch: Clear Party Disorders", data=("tool", "clear_party_dis")),
+            Row("Batch: Max Party Stats (All 7)", data=("tool", "max_party")),
+            Row("Batch: Strip All Birth Defects", data=("tool", "strip_defects")),
             Row("Repair & refill all gear", data=("tool", "repair_all")),
             Row("Advanced Properties & Unlocks", data=("tool", "props")),
             Row("Verify Save Integrity", data=("tool", "integrity")),
+            Row(f"UI Sounds: {'ON' if sfx.enabled() else 'OFF'}", data=("tool", "sfx")),
+            Row(upd_lbl, data=("tool", "update")),
             Row("Save pending changes", data=("write",)),
         ]
         self.res_list.set_rows(rows)
@@ -869,44 +897,80 @@ class HomeTab(Tab):
 
     def _run_tool(self, tool: str) -> None:
         app = self.app
-        if tool == "repair_all":
-            app.confirm("Repair & refill all gear?",
-                        "Refills durability/uses and clears worn flags on all items in Home Storage & Adventure Backpack.",
-                        lambda: app.write(repair_all=True), yes="Repair all")
+        p = app.pending
+        if tool == "unlocks":
+            app.push(ed.UnlocksScreen(sys.modules[__name__], app))
+        elif tool == "clear_party_dis":
+            p.clear_party_disorders = not p.clear_party_disorders
+            app.toast("Queued Clear Party Disorders · click Save to apply" if p.clear_party_disorders else "Cancelled Clear Party Disorders", GOOD if p.clear_party_disorders else DIM, 2.6)
+        elif tool == "max_party":
+            p.max_party_stats = not p.max_party_stats
+            app.toast("Queued Max Party Stats (All 7) · click Save to apply" if p.max_party_stats else "Cancelled Max Party Stats", GOOD if p.max_party_stats else DIM, 2.6)
+        elif tool == "strip_defects":
+            p.strip_all_defects = not p.strip_all_defects
+            app.toast("Queued Strip All Birth Defects · click Save to apply" if p.strip_all_defects else "Cancelled Strip Birth Defects", GOOD if p.strip_all_defects else DIM, 2.6)
+        elif tool == "repair_all":
+            p.repair_all = not p.repair_all
+            app.toast("Queued Repair & Refill All Gear · click Save to apply" if p.repair_all else "Cancelled Repair All Gear", GOOD if p.repair_all else DIM, 2.6)
         elif tool == "props":
             app.push(ed.PropertiesScreen(sys.modules[__name__], app))
         elif tool == "integrity":
             ok, notes = sf.check_integrity(app.save)
             app.confirm("Save Integrity: OK" if ok else "Save Integrity: Issues Found",
                         "  ·  ".join(notes), lambda: None, yes="OK", danger=not ok)
+        elif tool == "sfx":
+            sfx.set_enabled(not sfx.enabled())
+            if sfx.enabled():
+                sfx.play("ok")
+            self.on_enter()
+            app.toast(f"UI Sounds: {'ON' if sfx.enabled() else 'OFF'}", INFO, 1.8)
+        elif tool == "update":
+            info = getattr(app, "update_info", None) or upd.check_latest(timeout=5.0)
+            app.update_info = info
+            self.on_enter()
+            if not info:
+                app.toast("Could not reach GitHub Releases", BAD, 3.0)
+            elif not info.get("newer"):
+                app.toast(f"MewDeck v{upd.VERSION} is up to date ({info['tag']})", GOOD, 3.0)
+            else:
+                def do_upd():
+                    app.toast(f"Downloading {info['tag']}…", INFO, 8.0)
+                    app.render()
+                    ok, msg = upd.download_and_install(info.get("asset_url", ""))
+                    app.toast(msg, GOOD if ok else BAD, 6.0)
+                app.confirm(f"Install MewDeck {info['tag']}?",
+                            "Downloads the latest release and updates MewDeck in place (keeps all saves & backups).",
+                            do_upd, yes="Update now")
 
     def activate(self, item: str) -> None:
         app = self.app
+        p = app.pending
         if item == "reset":
-            app.confirm("Reset Steven's penalty?",
-                        "Sets savescumlocation to 0, keeps 1 strike, and strips Déjà Vu from adventure cats. Backup made first.",
-                        lambda: app.write(steven="cap"), yes="Reset")
+            p.steven = None if p.steven == "cap" else "cap"
+            app.toast("Queued Steven Reset + strip Déjà Vu · click Save" if p.steven == "cap" else "Cancelled Steven Reset",
+                      GOOD if p.steven else DIM, 2.8)
         elif item == "wipe":
-            app.confirm("Reset and wipe all strikes?",
-                        "Deletes Steven's whole strike history and strips Déjà Vu from adventure cats. Backup made first.",
-                        lambda: app.write(steven="clear"), yes="Wipe", danger=True)
+            p.steven = None if p.steven == "clear" else "clear"
+            app.toast("Queued Wipe All Steven Strikes · click Save" if p.steven == "clear" else "Cancelled Wipe Strikes",
+                      ACCENT if p.steven else DIM, 2.8)
         elif item == "restart":
-            app.confirm("Close, reset & relaunch?", "Closes Mewgenics, resets Steven, then starts the game through Steam.",
-                        app.restart_cycle, yes="Do it")
+            app.confirm("Close, save & relaunch?",
+                        "Closes Mewgenics, saves your pending changes (including Steven reset), then starts the game through Steam.",
+                        app.restart_cycle, yes="Save & Relaunch")
         elif item == "guard":
-            on = not app.snap.steven.guarded
-            if on:
-                app.confirm("Auto-block Steven?", "Adds a guard to this save so the game can never arm the save-scum "
-                            "penalty again. Also resets it now. Turn it off here any time.",
-                            lambda: app.write(steven="cap", guard=True), yes="Block")
+            want = not app.snap.steven.guarded
+            if p.guard == want:
+                p.guard = None
+                app.toast("Cancelled Auto-block change", DIM, 2.2)
             else:
-                app.confirm("Turn off auto-block?", "Removes MewDeck's guard; Steven works normally again.",
-                            lambda: app.write(guard=False), yes="Turn off")
+                p.guard = want
+                if want and not p.steven:
+                    p.steven = "cap"
+                app.toast(f"Queued Auto-block {'ON' if want else 'OFF'} · click Save", GOOD if want else ACCENT, 2.8)
         elif item == "heal_all":
-            inj = sum(1 for c in app.snap.parsed["cats"] if c["injured"] or c["wounded"])
-            body = (f"Heals HP, injuries, stat penalties, and visual scars on all {app.snap.parsed['total_cats']} active cats "
-                    f"({inj} currently injured/wounded). A backup is made first.")
-            app.confirm("Heal all active cats?", body, lambda: app.write(heal_all=True), yes="Heal all")
+            p.heal_all = not p.heal_all
+            app.toast("Queued Heal All Active Cats · click Save to apply" if p.heal_all else "Cancelled Heal All Cats",
+                      GOOD if p.heal_all else DIM, 2.8)
 
     def click(self, pos) -> None:
         for (key, d), r in self.arrow_rects.items():
@@ -937,9 +1001,19 @@ class HomeTab(Tab):
     def _render_res_row(self, surf, r, row: Row, selected: bool) -> None:
         focused = self.col == 1 and selected
         if row.data[0] == "tool":
+            tkey = row.data[1]
+            p = self.app.pending
+            queued = (
+                (tkey == "clear_party_dis" and p.clear_party_disorders)
+                or (tkey == "max_party" and p.max_party_stats)
+                or (tkey == "strip_defects" and p.strip_all_defects)
+                or (tkey == "repair_all" and p.repair_all)
+            )
             rrect(surf, r, CARD_HI if focused else CARD, 16)
-            pill(surf, "TOOL", r.x + 18, r.centery, mix(INFO, CARD, .72), INFO, size=15, anchor="midleft")
-            text(surf, row.label, (r.x + 96, r.centery), 25, TEXT, "bold", anchor="midleft", maxw=r.w - 160)
+            pill(surf, "QUEUED" if queued else "TOOL", r.x + 18, r.centery,
+                 GOOD if queued else mix(INFO, CARD, .72), DARK if queued else INFO, size=15, anchor="midleft")
+            text(surf, row.label, (r.x + 114 if queued else r.x + 96, r.centery), 25,
+                 GOOD if queued else TEXT, "bold", anchor="midleft", maxw=r.w - 170)
             tri(surf, ACCENT if focused else DIM, (r.right - 28, r.centery), 10, "right")
             return
         if row.data[0] == "write":
@@ -1018,7 +1092,16 @@ class HomeTab(Tab):
             fg = DARK if primary and (st.active or st.dejavu_cats) else TEXT
             text(surf, label, (r.x + 28, r.y + 14), 32, fg, "black")
             text(surf, desc, (r.x + 28, r.bottom - 14), 22, mix(fg, col, .28), anchor="bottomleft")
-            if key == "guard":
+            p = self.app.pending
+            queued = (
+                (key == "reset" and p.steven == "cap")
+                or (key == "wipe" and p.steven == "clear")
+                or (key == "guard" and p.guard is not None)
+                or (key == "heal_all" and p.heal_all)
+            )
+            if queued:
+                pill(surf, "QUEUED", r.right - 32, r.centery, GOOD, DARK, 20, anchor="midright")
+            elif key == "guard":
                 pill(surf, "ON" if st.guarded else "OFF", r.right - 32, r.centery, GOOD if st.guarded else LINE,
                      DARK if st.guarded else TEXT, 22, anchor="midright")
             elif key == "heal_all":
@@ -1204,8 +1287,13 @@ class CatsTab(Tab):
         ccol = CLASS_COL.get(c["class"], (150, 142, 164))
         rrect(surf, (r.x, r.y, 11, r.h), ccol if not gone else LINE, 5)
         scol = SEX_COL.get(c["sex"], DIM)
-        pygame.draw.circle(surf, mix(scol, CARD, .25), (r.x + 62, r.centery), 30)
-        text(surf, {"Male": "M", "Female": "F"}.get(c["sex"], "?"), (r.x + 62, r.centery), 30, DARK, "black",
+        cbadge = pygame.Rect(r.x + 24, r.centery - 36, 72, 72)
+        ed.draw_sprite_badge(sys.modules[__name__], surf, "class", c["class"], cbadge,
+                             border_col=ccol if not gone else LINE, fallback_col=ccol)
+        # Compact inked sex pip on bottom-right corner of class collar badge
+        pygame.draw.circle(surf, INK, (cbadge.right - 6, cbadge.bottom - 6), 15)
+        pygame.draw.circle(surf, scol, (cbadge.right - 6, cbadge.bottom - 6), 12)
+        text(surf, {"Male": "M", "Female": "F"}.get(c["sex"], "?"), (cbadge.right - 6, cbadge.bottom - 6), 17, DARK, "black",
              anchor="center")
         pend_c = self.app.pending.cats.get(c["key"], {})
         name_r = text(surf, row.label, (r.x + 114, r.y + 16), 38, DIM if gone else TEXT, "black", maxw=380)
@@ -1298,6 +1386,10 @@ class CatEdit(Screen):
         super().__init__(app)
         self.cats, self.idx = cats, index
         self.list = ListView(row_h=80, gap=8)
+        self.card_mode = False
+        self.card_idx = 0
+        self.hover_idx: int | None = None
+        self.card_rects: list[tuple[pygame.Rect, dict[str, Any]]] = []
         self.load()
 
     @property
@@ -1358,6 +1450,7 @@ class CatEdit(Screen):
             Row("Mutations & Coat", data=("sub", "mutations")),
             Row("Equipped Gear", data=("sub", "equip")),
             Row("Level-Up Bonuses", data=("sub", "bonuses")),
+            Row("Build Presets & Clone", data=("sub", "presets")),
         ]
         rows += [Row(s, data=("stat", s), enabled=self.ok["stats"]) for s in STATS]
         rows.append(Row("Rename cat", data=("rename",)))
@@ -1375,15 +1468,115 @@ class CatEdit(Screen):
         ]
         self.list.set_rows(rows)
 
+    def _ability_cards(self) -> list[dict[str, Any]]:
+        """Build structured visual card descriptors for the cat's Actives, Passives & Disorders."""
+        ab = self.vals["abilities"]
+        cards: list[dict[str, Any]] = []
+        act_labels = ("Move", "Basic", "Active 1", "Active 2", "Active 3", "Active 4")
+        for idx in range(1, 6):
+            aid = ab["active"][idx]
+            if not aid:
+                continue
+            info = gd.active_info(aid)
+            cards.append({
+                "kind": "active",
+                "slot": idx,
+                "sprite_kind": "ability",
+                "id": aid,
+                "name": info["name"],
+                "tag": f"{info['mana']} MP" if info.get("mana") else act_labels[idx],
+                "accent": CLASS_COL.get(info.get("class", ""), INFO),
+                "info": info,
+                "desc": info.get("desc") or "No description available.",
+            })
+        for idx, (pid, tier) in enumerate(zip(ab["passive"], ab["passive_tiers"])):
+            if not pid:
+                continue
+            pi = gd.passive_info(pid, tier)
+            cards.append({
+                "kind": "passive",
+                "slot": idx,
+                "sprite_kind": "ability",
+                "id": pid,
+                "name": pi.get("display_name", pi["name"]),
+                "tag": f"Passive T{tier}{'+' if tier == 2 else ''}",
+                "accent": ACCENT,
+                "info": pi,
+                "desc": pi.get("active_desc") or pi.get("desc") or "No description available.",
+            })
+        for idx, did in enumerate(ab["disorder"]):
+            if not did:
+                continue
+            di = gd.disorder_info(did)
+            cards.append({
+                "kind": "disorder",
+                "slot": idx,
+                "sprite_kind": "disorder",
+                "id": did,
+                "name": di["name"],
+                "tag": "Disorder",
+                "accent": BAD,
+                "info": di,
+                "desc": di.get("desc") or "No description available.",
+            })
+        return cards
+
+    def _open_card(self, card: dict[str, Any]) -> None:
+        mod = sys.modules[__name__]
+        scr = ed.AbilitiesScreen(mod, self, card["kind"])
+        scr.list.sel = min(card["slot"], max(0, len(scr.list.rows) - 1))
+        self.app.push(scr)
+
+    def hover(self, pos) -> None:
+        self.hover_idx = None
+        for idx, (r, _) in enumerate(self.card_rects):
+            if r.collidepoint(pos):
+                self.hover_idx = idx
+                return
+
     def handle(self, btn: str) -> None:
+        if btn in (LB, RB):
+            self.idx = (self.idx + (1 if btn == RB else -1)) % len(self.cats)
+            self.card_mode = False
+            self.card_idx = 0
+            self.hover_idx = None
+            self.load()
+            return
+        if btn == Y:
+            cards = self._ability_cards()
+            if cards:
+                self.card_mode = not self.card_mode
+                self.card_idx = min(self.card_idx, len(cards) - 1)
+            return
+        if self.card_mode:
+            cards = self._ability_cards()
+            if not cards:
+                self.card_mode = False
+            else:
+                if btn == UP:
+                    self.card_idx = max(0, self.card_idx - 2)
+                elif btn == DOWN:
+                    self.card_idx = min(len(cards) - 1, self.card_idx + 2)
+                elif btn == LEFT:
+                    if self.card_idx % 2 == 0:
+                        self.card_mode = False
+                    else:
+                        self.card_idx -= 1
+                elif btn == RIGHT:
+                    self.card_idx = min(len(cards) - 1, self.card_idx + 1)
+                elif btn == A:
+                    self._open_card(cards[self.card_idx])
+                elif btn == START:
+                    self.app.write()
+                elif btn == B:
+                    self.card_mode = False
+                return
+
         row = self.list.current
         if btn in (UP, DOWN):
             self.list.move(-1 if btn == UP else 1)
         elif btn in (LT, RT):
             self.list.move(-6 if btn == LT else 6)
-        elif btn in (LB, RB):
-            self.idx = (self.idx + (1 if btn == RB else -1)) % len(self.cats)
-            self.load()
         elif btn in (LEFT, RIGHT) and row:
             if not row.enabled:
                 return
@@ -1409,12 +1602,15 @@ class CatEdit(Screen):
                 i = cb.CAT_CLASSES.index(old_cls) if old_cls in cb.CAT_CLASSES else 0
                 new_cls = cb.CAT_CLASSES[(i + d) % len(cb.CAT_CLASSES)]
                 self.vals["class"] = new_cls
-                # Auto-sync default basic attack if current slot 1 was a standard class basic attack
                 cur_atk = self.vals["abilities"]["active"][1]
                 if cur_atk in cb.CLASS_BASIC_ATTACK.values():
                     self.vals["abilities"]["active"][1] = cb.CLASS_BASIC_ATTACK[new_cls]
             elif kind == "retired":
                 self.vals["retired"] = not self.vals["retired"]
+            elif btn == RIGHT and self._ability_cards():
+                self.card_mode = True
+                self.card_idx = 0
+                return
             else:
                 return
             self.commit_local()
@@ -1431,6 +1627,8 @@ class CatEdit(Screen):
                     self.app.push(ed.EquipScreen(mod, self))
                 elif which == "bonuses":
                     self.app.push(ed.BonusStatsScreen(mod, self))
+                elif which == "presets":
+                    self.app.push(ed.PresetsScreen(mod, self))
             elif kind == "rename":
                 def done_rename(nm: str) -> None:
                     if nm:
@@ -1471,6 +1669,13 @@ class CatEdit(Screen):
             self.app.top().on_enter()
 
     def click(self, pos) -> None:
+        for idx, (r, card) in enumerate(self.card_rects):
+            if r.collidepoint(pos):
+                self.card_idx = idx
+                self.hover_idx = idx
+                self._open_card(card)
+                return
+        self.card_mode = False
         i = self.list.hit(pos)
         if i is not None:
             if i == self.list.sel:
@@ -1541,6 +1746,9 @@ class CatEdit(Screen):
             neg = sum(v for v in self.vals["level_bonuses"].values() if v < 0)
             txt = f"+{pos}" + (f" / {neg}" if neg else "") if (pos or neg) else "None"
             return (txt, GOOD if pos else BAD if neg else DIM)
+        if which == "presets":
+            clip = getattr(self.app, "cat_clipboard", None)
+            return (f"Clipboard: {clip['name']}" if clip else "Templates & Copy", ACCENT if clip else DIM)
         return ("", DIM)
 
     def render_row(self, surf, r, row: Row, selected: bool) -> None:
@@ -1591,75 +1799,133 @@ class CatEdit(Screen):
         c = self.cat
         cls_name = self.vals["class"]
         ccol = CLASS_COL.get(cls_name, ACCENT)
-        card = pygame.Rect(W - PAD - 560, HEADER_H + 24, 560, CONTENT_BOTTOM - HEADER_H - 24)
-        rrect(surf, card, CARD, 26)
-        band = pygame.Rect(card.x, card.y, card.w, 188)
-        tint = pygame.Surface(band.size, pygame.SRCALPHA)
-        tint.fill((*ccol, 40))
-        surf.blit(tint, band.topleft)
-        icon_cat(surf, card.x + 88, card.y + 98, 50, ccol, CARD)
-        text(surf, self.vals["name"] or f"#{c['key']}", (card.x + 164, card.y + 42), 40, TEXT, "black", maxw=card.w - 190)
-        pill(surf, cls_name, card.x + 164, card.y + 106, ccol, size=22)
+        card = pygame.Rect(W - PAD - 610, HEADER_H + 24, 610, CONTENT_BOTTOM - HEADER_H - 24)
+        rrect(surf, card, CARD, 24, shadow=True)
 
-        y = card.y + 208
+        # Compact inked header band with official Class Collar sprite
+        band = pygame.Rect(card.x + 3, card.y + 3, card.w - 6, 138)
+        tint = pygame.Surface(band.size, pygame.SRCALPHA)
+        tint.fill((*ccol, 46))
+        surf.blit(tint, band.topleft)
+        pygame.draw.line(surf, INK, (card.x, band.bottom), (card.right, band.bottom), 3)
+
+        cbadge = pygame.Rect(card.x + 24, card.y + 24, 92, 92)
+        ed.draw_sprite_badge(sys.modules[__name__], surf, "class", cls_name, cbadge, border_col=ccol, fallback_col=ccol)
+        text(surf, self.vals["name"] or f"#{c['key']}", (card.x + 134, card.y + 24), 38, TEXT, "black", maxw=card.w - 290)
+        pill(surf, cls_name, card.x + 134, card.y + 80, ccol, size=20)
+
+        # Compact status & vitals strip
         room = "Adventure Party" if self.vals["room"] == "(ADVENTURE)" else (self.vals["room"] or "Graveyard").replace("_", " ")
         inj_name = gd.injury_info(c["injury"])["name"] if (c["injury"] and not self.vals["heal"]) else ""
-        status = "Healthy" if not (c["dead"] or inj_name) else ("Dead (Graveyard)" if c["dead"] else f"Injured: {inj_name}")
+        status = "Healthy" if not (c["dead"] or inj_name) else ("Dead" if c["dead"] else f"Injured: {inj_name}")
         if self.vals["revive"]:
             status = "Reviving » Attic"
         elif self.vals["heal"] and (c["injured"] or c["wounded"]):
             status = "Healing » Full"
-
         eff_con = max(1, self.vals["stats"]["CON"] + self.vals["level_bonuses"]["CON"] + (0 if self.vals["heal"] else c["injury_mods"]["CON"]))
         eff_cha = max(1, self.vals["stats"]["CHA"] + self.vals["level_bonuses"]["CHA"] + (0 if self.vals["heal"] else c["injury_mods"]["CHA"]))
         hp_str = f"{eff_con * 4}/{eff_con * 4}" if (self.vals["heal"] or c["hp_raw"] == cb.HP_FULL) else f"{c['hp']}/{eff_con * 4}"
 
-        for lab, val, vcol in (("LOCATION", room, INFO if c["room"] == "(ADVENTURE)" else TEXT),
-                               ("STATUS", status, BAD if "Injured" in status or "Dead" in status else GOOD),
-                               ("HP · MANA", f"HP {hp_str}  ·  Mana {eff_cha * 3}  ·  Cat {self.idx + 1}/{len(self.cats)}", TEXT)):
-            text(surf, lab, (card.x + 34, y), 18, FAINT, "black")
-            text(surf, val, (card.x + 34, y + 24), 27, vcol, "bold", maxw=card.w - 68)
-            y += 68
+        sy = band.bottom + 14
+        sx = card.x + 24
+        sx = pill(surf, room, sx, sy, INFO if c["room"] == "(ADVENTURE)" else CARD_HI, DARK if c["room"] == "(ADVENTURE)" else TEXT, size=18).right + 8
+        scol = BAD if ("Injured" in status or status == "Dead") else GOOD
+        sx = pill(surf, status, sx, sy, mix(scol, CARD, .65), scol, size=18).right + 8
+        text(surf, f"HP {hp_str} · MP {eff_cha * 3} · {self.idx + 1}/{len(self.cats)}",
+             (card.right - 24, sy + 16), 19, DIM, "bold", anchor="midright")
 
-        # Unobfuscated abilities summary
-        ab = self.vals["abilities"]
-        text(surf, "ABILITIES & DISORDERS", (card.x + 34, y), 18, FAINT, "black")
-        y += 28
-        shown_ab: list[tuple[str, tuple]] = []
-        for aid in ab["active"][1:]:
-            if aid:
-                shown_ab.append((gd.active_info(aid)["name"], TEXT))
-        for pid, tier in zip(ab["passive"], ab["passive_tiers"]):
-            if pid:
-                pi = gd.passive_info(pid, tier)
-                shown_ab.append((f"[P] {pi.get('display_name', pi['name'])}", ACCENT))
-        for did in ab["disorder"]:
-            if did:
-                shown_ab.append((f"[D] {gd.disorder_info(did)['name']}", BAD))
+        # Interactive Ability, Passive & Disorder Card Grid (hoverable + gamepad Y focusable)
+        gy = sy + 46
+        text(surf, "ABILITIES & DISORDERS", (card.x + 24, gy), 17, FAINT, "black")
+        text(surf, "Hover or press Y to inspect", (card.right - 24, gy), 17, ACCENT if self.card_mode else FAINT, "bold", anchor="topright")
+        gy += 26
+
+        cards = self._ability_cards()
+        self.card_rects = []
+        gap = 10
+        cw = (card.w - 48 - gap) // 2
+        ch = 68
+        active_tip_idx: int | None = self.card_idx if self.card_mode else self.hover_idx
+        if active_tip_idx is not None and active_tip_idx >= len(cards):
+            active_tip_idx = None
 
         cur = self.list.current
-        reserve = 148 if (cur and cur.data[0] == "stat") else 34
-        for nm, ncol in shown_ab:
-            if y + 28 > card.bottom - reserve:
-                break
-            text(surf, nm, (card.x + 34, y), 24, ncol, maxw=card.w - 68)
-            y += 30
+        # Reserve bottom space for live tooltip (hovered/focused card) OR stat info box
+        bottom_reserve = 196
+        max_grid_bottom = card.bottom - bottom_reserve
 
-        if cur and cur.data[0] == "stat":
-            info = pygame.Rect(card.x + 22, card.bottom - 144, card.w - 44, 124)
-            rrect(surf, info, CARD_HI, 18)
+        if not cards:
+            text(surf, "No abilities or disorders equipped.", (card.centerx, gy + 40), 23, FAINT, "bold", anchor="midtop")
+        else:
+            for i, ac in enumerate(cards):
+                col_i = i % 2
+                row_i = i // 2
+                cx = card.x + 24 + col_i * (cw + gap)
+                cy = gy + row_i * (ch + gap)
+                if cy + ch > max_grid_bottom:
+                    break
+                cr = pygame.Rect(cx, cy, cw, ch)
+                self.card_rects.append((cr, ac))
+                is_hi = (i == active_tip_idx)
+                bg = CARD_HI if is_hi else mix(CARD, WELL, .32)
+                rrect(surf, cr, bg, 14, ink=True)
+                if is_hi:
+                    pygame.draw.rect(surf, ACCENT, cr.inflate(2, 2), width=3, border_radius=15)
+                # Left accent bar + wiki sprite icon
+                rrect(surf, (cr.x + 3, cr.y + 4, 6, cr.h - 8), ac["accent"], 3, ink=False)
+                ib = pygame.Rect(cr.x + 14, cr.centery - 24, 48, 48)
+                ed.draw_sprite_badge(sys.modules[__name__], surf, ac["sprite_kind"], ac["id"], ib,
+                                     border_col=ac["accent"], fallback_col=ac["accent"])
+                # Name & mini tag
+                tcol = BAD if ac["kind"] == "disorder" else (ACCENT if ac["kind"] == "passive" else TEXT)
+                text(surf, ac["name"], (ib.right + 10, cr.y + 12), 21, tcol, "black", maxw=cr.w - 78)
+                text(surf, ac["tag"], (ib.right + 10, cr.bottom - 12), 17, DIM, "bold", anchor="bottomleft", maxw=cr.w - 78)
+
+        # Bottom live Inspector Panel: shows hovered/focused Ability Card tooltip OR selected Stat description!
+        tbox = pygame.Rect(card.x + 22, card.bottom - bottom_reserve + 10, card.w - 44, bottom_reserve - 24)
+        if active_tip_idx is not None:
+            ac = cards[active_tip_idx]
+            rrect(surf, tbox, CARD_HI, 18, ink=True, shadow=True)
+            rrect(surf, (tbox.x + 3, tbox.y + 4, 8, tbox.h - 8), ac["accent"], 4, ink=False)
+            ib = pygame.Rect(tbox.x + 20, tbox.y + 18, 66, 66)
+            ed.draw_sprite_badge(sys.modules[__name__], surf, ac["sprite_kind"], ac["id"], ib, border_col=ac["accent"])
+            tx = ib.right + 16
+            tw = tbox.right - tx - 18
+            text(surf, ac["name"], (tx, tbox.y + 16), 27, TEXT, "black", maxw=tw - 90)
+            pill(surf, ac["tag"], tbox.right - 16, tbox.y + 28, ac["accent"], DARK, size=16, anchor="midright")
+            # Description wrapped cleanly below title
+            dy = tbox.y + 52
+            for ln in ed.wrap_lines(F(21), ac["desc"], tw, max_lines=4):
+                if dy + 24 > tbox.bottom - 24:
+                    break
+                text(surf, ln, (tx, dy), 21, DIM)
+                dy += 25
+            text(surf, "Click or press A to swap this slot", (tx, tbox.bottom - 14), 17, ACCENT, "bold", anchor="bottomleft")
+        elif cur and cur.data[0] == "stat":
+            rrect(surf, tbox, CARD_HI, 18, ink=True)
             s = cur.data[1]
-            text(surf, s, (info.x + 20, info.y + 14), 23, stat_col(self.vals["stats"][s]), "black")
-            for i, l in enumerate(ed.wrap_lines(F(24), STAT_INFO[s], info.w - 40, max_lines=2)):
-                text(surf, l, (info.x + 20, info.y + 48 + i * 30), 24, DIM)
+            text(surf, f"{s}  (Base {self.vals['stats'][s]}/7)", (tbox.x + 22, tbox.y + 18), 25, stat_col(self.vals["stats"][s]), "black")
+            for i, l in enumerate(ed.wrap_lines(F(23), STAT_INFO[s], tbox.w - 44, max_lines=4)):
+                text(surf, l, (tbox.x + 22, tbox.y + 56 + i * 28), 23, DIM)
+        else:
+            rrect(surf, tbox, WELL, 18, ink=True)
+            text(surf, "CARD INSPECTOR", (tbox.x + 22, tbox.y + 20), 17, FAINT, "black")
+            for i, l in enumerate(ed.wrap_lines(
+                F(22),
+                "Hover over any ability, passive, or disorder card above — or press Y on gamepad — to inspect full effects and click to swap slots.",
+                tbox.w - 44, max_lines=3,
+            )):
+                text(surf, l, (tbox.x + 22, tbox.y + 52 + i * 28), 22, DIM)
 
-        area = pygame.Rect(PAD, HEADER_H + 24, card.x - PAD - 36, CONTENT_BOTTOM - HEADER_H - 24)
-        self.list.draw(surf, area, self.render_row)
+        area = pygame.Rect(PAD, HEADER_H + 24, card.x - PAD - 32, CONTENT_BOTTOM - HEADER_H - 24)
+        self.list.draw(surf, area, self.render_row, show_focus=not self.card_mode)
         glyph(surf, "LB", card.x + card.w - 136, card.y + 30)
         glyph(surf, "RB", card.x + card.w - 74, card.y + 30)
 
     def hint_items(self):
-        return [("A", "Open / Run"), ("DPAD_LR", "Adjust"), ("LBRB", "Prev/next cat"), ("B", "Done")] + pending_hint(self.app)
+        if self.card_mode:
+            return [("A", "Edit Slot"), ("DPAD", "Inspect Cards"), ("B", "Back to List"), ("LBRB", "Prev/next cat")] + pending_hint(self.app)
+        return [("A", "Open / Run"), ("Y", "Inspect Cards"), ("DPAD_LR", "Adjust"), ("LBRB", "Prev/next cat"), ("B", "Done")] + pending_hint(self.app)
 
 
 # --------------------------------------------------------------------------- items
@@ -1968,14 +2234,28 @@ class BackupsTab(Tab):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.list = ListView(row_h=102, gap=11)
+        self.list = ListView(row_h=98, gap=10)
+        self._diff_cache: dict[str, list[tuple[str, str, str]]] = {}
 
     def on_enter(self) -> None:
+        self._diff_cache.clear()
         self.list.set_rows([Row(b.when.strftime("%b %d"), data=b) for b in sf.list_backups(self.app.save)])
+
+    def _get_diff(self, b: sf.Backup) -> list[tuple[str, str, str]]:
+        k = str(b.path)
+        if k not in self._diff_cache:
+            try:
+                bsnap = sf.snapshot(b.path)
+                self._diff_cache[k] = sf.diff_snapshots(self.app.snap, bsnap)
+            except Exception as e:  # noqa: BLE001
+                self._diff_cache[k] = [("Error", str(e), "")]
+        return self._diff_cache[k]
 
     def handle(self, btn: str) -> bool:
         if btn in (UP, DOWN):
             self.list.move(-1 if btn == UP else 1)
+        elif btn in (LT, RT):
+            self.list.move(-8 if btn == LT else 8)
         elif btn == A and self.list.current:
             b: sf.Backup = self.list.current.data
             self.app.confirm("Restore this backup?", f"Backup from {b.when:%b %d, %H:%M}. Your current save is backed "
@@ -2001,24 +2281,41 @@ class BackupsTab(Tab):
     @staticmethod
     def render_row(surf, r, row: Row, selected: bool) -> None:
         b: sf.Backup = row.data
-        text(surf, b.when.strftime("%a %b %d"), (r.x + 32, r.y + 16), 35, TEXT, "black")
-        text(surf, b.when.strftime("%H:%M:%S"), (r.x + 32, r.bottom - 16), 26, DIM, anchor="bottomleft")
+        text(surf, b.when.strftime("%a %b %d"), (r.x + 28, r.y + 14), 32, TEXT, "black")
+        text(surf, b.when.strftime("%H:%M:%S"), (r.x + 28, r.bottom - 14), 24, DIM, anchor="bottomleft")
         reason = b.reason.replace("before-", "before ").replace("-", " ") or "backup"
-        pill(surf, reason, r.x + 350, r.centery, CARD_HI if not selected else LINE, TEXT, 23, anchor="midleft")
-        text(surf, f"Day {b.day if b.day is not None else '?'}", (r.right - 284, r.centery), 30, DIM, "bold",
+        pill(surf, reason, r.x + 310, r.centery, CARD_HI if not selected else LINE, TEXT, 20, anchor="midleft")
+        text(surf, f"Day {b.day if b.day is not None else '?'}", (r.right - 220, r.centery), 26, DIM, "bold",
              anchor="midright")
         on = b.penalty not in (None, 0)
-        pill(surf, "Steven ON" if on else "clear", r.right - 30, r.centery, BAD if on else mix(GOOD, CARD, .3),
-             size=22, anchor="midright")
+        pill(surf, "Steven ON" if on else "clear", r.right - 24, r.centery, BAD if on else mix(GOOD, CARD, .3),
+             size=20, anchor="midright")
 
     def draw(self, surf, area) -> None:
-        text(surf, str(sf.backup_dir_for(self.app.save)), (area.x, area.y), 24, FAINT, maxw=area.w)
-        la = pygame.Rect(area.x, area.y + 48, area.w - 20, area.h - 48)
+        text(surf, str(sf.backup_dir_for(self.app.save)), (area.x, area.y), 22, FAINT, maxw=area.w)
+        la = pygame.Rect(area.x, area.y + 44, area.w - 590, area.h - 44)
         if not self.list.rows:
-            text(surf, "No backups yet. One is made automatically before every save.", (la.centerx, la.y + 108),
+            text(surf, "No backups yet. One is made automatically before every save.", (area.centerx, area.y + 108),
                  32, DIM, "bold", anchor="midtop")
             return
         self.list.draw(surf, la, self.render_row)
+
+        # Right panel: Live Diff vs Current Save
+        dbox = pygame.Rect(area.right - 550, area.y + 44, 550, area.h - 44)
+        rrect(surf, dbox, CARD, 24, shadow=True)
+        b: sf.Backup = self.list.current.data
+        x, y, w = dbox.x + 28, dbox.y + 24, dbox.w - 56
+        text(surf, "BACKUP DIFF VS CURRENT SAVE", (x, y), 17, ACCENT, "black")
+        y += 30
+        text(surf, b.when.strftime("%b %d · %H:%M:%S"), (x, y), 30, TEXT, "black")
+        y += 48
+        for lbl, bval, delta in self._get_diff(b):
+            text(surf, lbl, (x, y), 22, DIM, "bold")
+            text(surf, bval, (dbox.right - 160, y), 23, TEXT, "black", anchor="topright")
+            dcol = FAINT if delta == "same" else (GOOD if delta.startswith("+") else BAD if delta.startswith("-") else ACCENT)
+            text(surf, delta, (dbox.right - 28, y), 21, dcol, "bold", anchor="topright")
+            y += 38
+        text(surf, "Press A to restore (auto-backs up current first).", (x, dbox.bottom - 34), 20, FAINT, maxw=w)
 
     def hint_items(self):
         return [("A", "Restore"), ("X", "Back up now"), ("B", "Saves")]
@@ -2124,6 +2421,10 @@ class App:
         self.toasts: list[tuple[str, tuple, float, float]] = []
         self._game_running = False
         self._last_poll = 0.0
+        self.update_info: dict[str, Any] | None = None
+        self.cat_clipboard: dict[str, Any] | None = None
+        if os.environ.get("SDL_VIDEODRIVER") != "dummy":
+            upd.check_latest_async(self._on_update_checked)
         self.push(SavePicker(self))
         if save:
             self.open_save(save)
@@ -2131,6 +2432,11 @@ class App:
             rows = [r for r in self.stack[0].list.rows if r.enabled]
             if len(rows) == 1:  # only one campaign: skip the picker
                 self.open_save(rows[0].data[0])
+
+    def _on_update_checked(self, info: dict[str, Any]) -> None:
+        self.update_info = info
+        if info.get("newer"):
+            self.toast(f"MewDeck {info['tag']} available · install from Home", GOOD, 5.0)
 
     @staticmethod
     def _set_mode(size: tuple[int, int], flags: int) -> pygame.Surface:
@@ -2147,15 +2453,23 @@ class App:
 
     @staticmethod
     def _make_bg() -> pygame.Surface:
+        """Warm Mewgenics sketchbook desk backdrop with faint graph-paper grid & desk glow."""
         bg = pygame.Surface((W, H))
         for y in range(H):
             pygame.draw.line(bg, mix(BG_TOP, BG_BOT, y / H), (0, y), (W, y))
+        # Subtle hand-drawn notebook grid lines (in-game Mewgenics sketchbook texture)
+        grid_col = (48, 42, 36)
+        step = 48
+        for x in range(0, W, step):
+            pygame.draw.line(bg, grid_col, (x, 0), (x, H), 1)
+        for y in range(0, H, step):
+            pygame.draw.line(bg, grid_col, (0, y), (W, y), 1)
         n = 48
         small = pygame.Surface((n, n), pygame.SRCALPHA)
         for yy in range(n):
             for xx in range(n):
                 d = math.hypot(xx - n / 2 + .5, yy - n / 2 + .5) / (n / 2)
-                small.set_at((xx, yy), (*ACCENT, int(max(0.0, 1 - d) ** 2 * 26)))
+                small.set_at((xx, yy), (*ACCENT, int(max(0.0, 1 - d) ** 2 * 22)))
         glow = pygame.transform.smoothscale(small, (1750, 1750))
         bg.blit(glow, (W - 216 - 875, -80 - 875))
         return bg
@@ -2203,7 +2517,8 @@ class App:
         self.reload()
 
     def write(self, steven: str | None = None, guard: bool | None = None, heal_all: bool = False,
-              repair_all: bool = False) -> bool:
+              repair_all: bool = False, clear_party_disorders: bool = False,
+              max_party_stats: bool = False, strip_all_defects: bool = False) -> bool:
         assert self.save
         ch = self.pending
         if steven:
@@ -2214,24 +2529,36 @@ class App:
             ch.heal_all = True
         if repair_all:
             ch.repair_all = True
+        if clear_party_disorders:
+            ch.clear_party_disorders = True
+        if max_party_stats:
+            ch.max_party_stats = True
+        if strip_all_defects:
+            ch.strip_all_defects = True
         if ch.empty():
             self.toast("Nothing to save")
             return False
-        reason = "steven-reset" if steven else ("heal-all" if heal_all else ("repair-all" if repair_all else "edit"))
+        reason = ("steven-reset" if steven else "heal-all" if heal_all else "repair-all" if repair_all
+                  else "party-batch" if (clear_party_disorders or max_party_stats) else "strip-defects" if strip_all_defects else "edit")
         try:
             sf.apply_changes(self.save, ch, reason=reason)
         except sf.GameRunningError as e:
             ch.steven, ch.guard, ch.heal_all, ch.repair_all = None, None, False, False
+            ch.clear_party_disorders = ch.max_party_stats = ch.strip_all_defects = False
+            sfx.play("err")
             self.toast(str(e), BAD, 5)
             return False
         except Exception as e:  # noqa: BLE001
             ch.steven, ch.guard, ch.heal_all, ch.repair_all = None, None, False, False
+            ch.clear_party_disorders = ch.max_party_stats = ch.strip_all_defects = False
+            sfx.play("err")
             traceback.print_exc()
             self.toast(f"Not saved, file untouched: {e}", BAD, 7)
             return False
         n = ch.count()
         self.pending = sf.Changes()
         self._after_write()
+        sfx.play("save")
         st = self.snap.steven if self.snap else None
         if guard is not None and st is not None:
             self.toast("Auto-block on · Steven can't arm the penalty" if st.guarded else "Auto-block off",
@@ -2243,6 +2570,12 @@ class App:
             self.toast(f"Healed all {self.snap.parsed['total_cats']} active cats · backup made", GOOD, 4)
         elif repair_all:
             self.toast("Repaired & refilled all gear · backup made", GOOD, 4)
+        elif clear_party_disorders:
+            self.toast("Cleared all disorders on Adventure Party · backup made", GOOD, 4)
+        elif max_party_stats:
+            self.toast("Maxed all stats (7s) on Adventure Party · backup made", GOOD, 4)
+        elif strip_all_defects:
+            self.toast("Stripped all birth defects on active cats · backup made", GOOD, 4)
         else:
             self.toast(f"Saved {n} change{'s' if n != 1 else ''} · backup made", GOOD)
         return True
@@ -2290,11 +2623,15 @@ class App:
         for d in (-1, 1):
             pygame.draw.line(s, DIM, (qr.centerx - 12, qr.centery - 12 * d), (qr.centerx + 12, qr.centery + 12 * d), 5)
         x = qr.x - 16
+        self.save_rect: pygame.Rect | None = None
         if self._game_running:
-            pr = pill(s, "GAME RUNNING · close it to save", x, HEADER_H // 2, BAD, size=24, anchor="midright")
+            pr = pill(s, "GAME RUNNING · close it to save", x, HEADER_H // 2, BAD, size=23, anchor="midright")
             x = pr.x - 14
         if not self.pending.empty():
-            pill(s, f"{self.pending.count()} unsaved", x, HEADER_H // 2, ACCENT, size=24, anchor="midright")
+            self.save_rect = pill(s, f"Save ({self.pending.count()})", x, HEADER_H // 2, GOOD, DARK, size=25, anchor="midright", weight="black")
+            x = self.save_rect.x - 14
+        elif getattr(self, "update_info", None) and self.update_info.get("newer"):
+            pill(s, f"Update {self.update_info['tag']}", x, HEADER_H // 2, ACCENT, DARK, size=20, anchor="midright")
 
     def _footer(self, s, items) -> None:
         y = H - FOOTER_H
@@ -2348,6 +2685,9 @@ class App:
         return (pos[0] * W / ww, pos[1] * H / wh)
 
     def click(self, pos) -> None:
+        if getattr(self, "save_rect", None) and self.save_rect.collidepoint(pos) and self.save:
+            self.write()
+            return
         if getattr(self, "quit_rect", None) and self.quit_rect.collidepoint(pos):
             if not self.pending.empty():
                 self.confirm("Quit MewDeck?", f"{self.pending.count()} unsaved change(s) will be lost.",
@@ -2360,6 +2700,17 @@ class App:
     def quit(self) -> None:
         self.running = False
 
+    def _dispatch_btn(self, b: str) -> None:
+        if b in (UP, DOWN, LEFT, RIGHT, LT, RT):
+            sfx.play("tick")
+        elif b in (LB, RB):
+            sfx.play("tab")
+        elif b == A:
+            sfx.play("ok")
+        elif b == B:
+            sfx.play("back")
+        self.top().handle(b)
+
     def run(self) -> None:
         while self.running:
             for ev in pygame.event.get():
@@ -2367,20 +2718,23 @@ class App:
                     self.running = False
                 elif ev.type == pygame.VIDEORESIZE:
                     self._sync_surface()
+                elif ev.type == pygame.MOUSEMOTION:
+                    if hasattr(self.top(), "hover"):
+                        self.top().hover(self._map_pos(ev.pos))
                 elif ev.type == pygame.FINGERDOWN:  # touchscreen (normalised coords)
                     self.click((ev.x * W, ev.y * H))
                 elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and not getattr(ev, "touch", False):
                     self.click(self._map_pos(ev.pos))
                 elif ev.type == pygame.MOUSEWHEEL and not getattr(ev, "touch", False):
-                    self.top().handle(UP if ev.y > 0 else DOWN)
+                    self._dispatch_btn(UP if ev.y > 0 else DOWN)
                 elif ev.type == pygame.KEYDOWN and hasattr(self.top(), "handle_raw_key") and self.top().handle_raw_key(ev):
                     continue
                 else:
                     for b in self.input.translate(ev):
-                        self.top().handle(b)
+                        self._dispatch_btn(b)
             for b in self.input.poll():
                 if self.running:
-                    self.top().handle(b)
+                    self._dispatch_btn(b)
             now = time.time()
             if now - self._last_poll > 2:
                 self._last_poll = now

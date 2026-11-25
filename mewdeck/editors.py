@@ -16,72 +16,101 @@ import pygame
 
 from . import catblob as cb
 from . import gamedata as gd
+from . import presets as pr
 from . import savefile as sf
 
 
-# --------------------------------------------------------------------------- lazy wiki item icon atlas
+# --------------------------------------------------------------------------- lazy multi-atlas wiki sprite loader
 
-_ATLAS_LOADED = False
-_ATLAS_SURF: pygame.Surface | None = None
-_ATLAS_META: dict[str, Any] = {}
-_ICON_CACHE: dict[tuple[str, int], pygame.Surface | None] = {}
+_ATLAS_PATHS: dict[str, tuple[str, str]] = {
+    "item": ("items/item_icons.png", "items/item_icons.json"),
+    "ability": ("abilities/ability_icons.png", "abilities/ability_icons.json"),
+    "disorder": ("abilities/disorder_icons.png", "abilities/disorder_icons.json"),
+    "furniture": ("furniture/furniture_icons.png", "furniture/furniture_icons.json"),
+    "class": ("class_icons.png", "class_icons.json"),
+}
+_ATLAS_STATE: dict[str, tuple[pygame.Surface | None, dict[str, Any]]] = {}
+_SPRITE_CACHE: dict[tuple[str, str, int], pygame.Surface | None] = {}
 
 
-def _ensure_atlas() -> None:
-    global _ATLAS_LOADED, _ATLAS_SURF, _ATLAS_META
-    if _ATLAS_LOADED:
-        return
-    _ATLAS_LOADED = True
-    png = gd.DATA_DIR / "items/item_icons.png"
-    meta = gd.DATA_DIR / "items/item_icons.json"
+def _ensure_atlas(kind: str) -> tuple[pygame.Surface | None, dict[str, Any]]:
+    if kind in _ATLAS_STATE:
+        return _ATLAS_STATE[kind]
+    pair = _ATLAS_PATHS.get(kind)
+    if not pair:
+        _ATLAS_STATE[kind] = (None, {})
+        return (None, {})
+    png = gd.DATA_DIR / pair[0]
+    meta = gd.DATA_DIR / pair[1]
     if not (png.is_file() and meta.is_file()):
-        return
+        _ATLAS_STATE[kind] = (None, {})
+        return (None, {})
     try:
         surf = pygame.image.load(str(png))
         if pygame.display.get_surface() is not None:
             surf = surf.convert_alpha()
-        _ATLAS_SURF = surf
-        _ATLAS_META = json.loads(meta.read_text(encoding="utf-8"))
+        m = json.loads(meta.read_text(encoding="utf-8"))
+        _ATLAS_STATE[kind] = (surf, m)
+        return (surf, m)
     except Exception:
-        _ATLAS_SURF = None
-        _ATLAS_META = {}
+        _ATLAS_STATE[kind] = (None, {})
+        return (None, {})
 
 
-def get_item_icon(item_id: str | None, size: int = 48) -> pygame.Surface | None:
-    """Return a cached pygame Surface for a wiki item icon, or None if unavailable."""
-    if not item_id:
+def get_sprite(kind: str, key: str | None, size: int = 48) -> pygame.Surface | None:
+    """Return a cached pygame Surface for an offline wiki sprite (item/ability/disorder/furniture/class)."""
+    if not key:
         return None
-    key = (item_id, size)
-    if key in _ICON_CACHE:
-        return _ICON_CACHE[key]
-    _ensure_atlas()
-    if _ATLAS_SURF is None:
-        _ICON_CACHE[key] = None
+    ck = (kind, key, size)
+    if ck in _SPRITE_CACHE:
+        return _SPRITE_CACHE[ck]
+    surf, meta = _ensure_atlas(kind)
+    if surf is None:
+        _SPRITE_CACHE[ck] = None
         return None
-    idx = (_ATLAS_META.get("icons") or {}).get(item_id)
+    idx = (meta.get("icons") or {}).get(key)
     if idx is None:
-        _ICON_CACHE[key] = None
+        _SPRITE_CACHE[ck] = None
         return None
-    tile = int(_ATLAS_META.get("tile", 48))
-    cols = int(_ATLAS_META.get("cols", 32))
+    tile = int(meta.get("tile", 48))
+    cols = int(meta.get("cols", 32))
     cx = (idx % cols) * tile
     cy = (idx // cols) * tile
-    sub = _ATLAS_SURF.subsurface((cx, cy, tile, tile))
+    sub = surf.subsurface((cx, cy, tile, tile))
     out = sub if size == tile else pygame.transform.smoothscale(sub, (size, size))
-    _ICON_CACHE[key] = out
+    _SPRITE_CACHE[ck] = out
     return out
 
 
-def draw_item_badge(ui, surf: pygame.Surface, item_id: str | None, rect: pygame.Rect, rarity: str = "") -> None:
-    """Draw a rounded icon badge with the wiki item sprite (or rarity fallback dot)."""
-    rc = ui.RARITY_COL.get(rarity or "", ui.LINE)
-    ui.rrect(surf, rect, ui.DARK, min(14, rect.w // 4))
-    pygame.draw.rect(surf, ui.mix(rc, ui.CARD, .45), rect, width=2, border_radius=min(14, rect.w // 4))
-    ico = get_item_icon(item_id, max(16, rect.w - 10))
+def get_item_icon(item_id: str | None, size: int = 48) -> pygame.Surface | None:
+    return get_sprite("item", item_id, size)
+
+
+def draw_sprite_badge(
+    ui,
+    surf: pygame.Surface,
+    kind: str,
+    key: str | None,
+    rect: pygame.Rect,
+    border_col=None,
+    fallback_col=None,
+) -> None:
+    """Draw an inked sketchbook sprite badge (with clean fallback if sprite missing)."""
+    rad = min(14, rect.w // 4)
+    bg = getattr(ui, "WELL", ui.DARK)
+    ink = getattr(ui, "INK", (17, 16, 15))
+    ui.rrect(surf, rect, bg, rad)
+    pygame.draw.rect(surf, border_col or ink, rect, width=3, border_radius=rad)
+    ico = get_sprite(kind, key, max(16, rect.w - 10))
     if ico is not None:
         surf.blit(ico, ico.get_rect(center=rect.center))
     else:
-        pygame.draw.circle(surf, rc, rect.center, max(6, rect.w // 5))
+        pygame.draw.circle(surf, fallback_col or ui.LINE, rect.center, max(6, rect.w // 5))
+
+
+def draw_item_badge(ui, surf: pygame.Surface, item_id: str | None, rect: pygame.Rect, rarity: str = "") -> None:
+    rc = ui.RARITY_COL.get(rarity or "", ui.LINE)
+    draw_sprite_badge(ui, surf, "item", item_id, rect, border_col=ui.mix(rc, getattr(ui, "INK", ui.DARK), .35), fallback_col=rc)
 
 
 def wrap_lines(font: pygame.font.Font, s: str, maxw: int, max_lines: int = 12) -> list[str]:
@@ -143,11 +172,11 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         badges.append((f"Uses {item['durability']}", ui.CARD_HI, ui.DIM))
     for lab, bg, fg in badges:
         right_lim = ico_box.left - 12 if y < ico_box.bottom + 4 else box.right - 24
-        r = ui.pill(surf, lab, bx, y, bg, fg, size=18)
-        if r.right > right_lim:
+        est_w = ui.F(18, "bold").size(lab)[0] + 20
+        if bx > x and bx + est_w > right_lim:
             bx = x
             y += 34
-            r = ui.pill(surf, lab, bx, y, bg, fg, size=18)
+        r = ui.pill(surf, lab, bx, y, bg, fg, size=18)
         bx = r.right + 8
     y = max(y + 42, ico_box.bottom + 14)
 
@@ -158,11 +187,11 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         for sk, sv in stats.items():
             col = ui.GOOD if sv > 0 else ui.BAD
             txt = f"{'+' if sv > 0 else ''}{sv} {sk}"
-            r = ui.pill(surf, txt, sx, y, ui.mix(col, ui.CARD, .72), col, size=20)
-            if r.right > box.right - 24:
+            est_w = ui.F(20, "bold").size(txt)[0] + 22
+            if sx > x and sx + est_w > box.right - 24:
                 sx = x
                 y += 36
-                r = ui.pill(surf, txt, sx, y, ui.mix(col, ui.CARD, .72), col, size=20)
+            r = ui.pill(surf, txt, sx, y, ui.mix(col, ui.CARD, .72), col, size=20)
             sx = r.right + 8
         y += 42
 
@@ -417,6 +446,7 @@ class CatalogPicker:
         current_id: Any = None,
         allow_clear: bool = True,
         clear_label: str = "Clear (None)",
+        sprite_kind: str | None = None,
     ) -> None:
         self.ui = ui
         self.app = app
@@ -430,6 +460,7 @@ class CatalogPicker:
         self.current_id = current_id
         self.allow_clear = allow_clear
         self.clear_label = clear_label
+        self.sprite_kind = sprite_kind
         self.cat_idx = 0
         self.query = ""
         self.search_rect: pygame.Rect | None = None
@@ -528,9 +559,14 @@ class CatalogPicker:
             ui.text(surf, row.label, (r.x + 28, r.centery), 30, ui.BAD if selected else ui.DIM, "bold", anchor="midleft")
             return
         is_cur = (e.get("id") == self.current_id or e.get("raw_id") == self.current_id)
-        if e.get("kind") and get_item_icon(e.get("id"), 44) is not None:
+        sk = self.sprite_kind or ("item" if e.get("kind") else None)
+        if sk and get_sprite(sk, e.get("id"), 44) is not None:
             badge = pygame.Rect(r.x + 16, r.centery - 27, 54, 54)
-            draw_item_badge(ui, surf, e.get("id"), badge, e.get("rarity", ""))
+            if sk == "item":
+                draw_item_badge(ui, surf, e.get("id"), badge, e.get("rarity", ""))
+            else:
+                bcol = ui.BAD if sk == "disorder" else ui.CLASS_COL.get(e.get("class", ""), None)
+                draw_sprite_badge(ui, surf, sk, e.get("id"), badge, border_col=bcol)
             tx = r.x + 86
         else:
             dot_col = ui.ACCENT if is_cur else (ui.BAD if e.get("tag") == "birth_defect" else ui.GOOD if e.get("stats") else ui.LINE)
@@ -688,7 +724,7 @@ class AbilitiesScreen:
 
             self.app.push(CatalogPicker(ui, self.app, f"Pick {row.label}", entries, cats,
                                         lambda e: e.get("class") or "Other", pick, detail, meta,
-                                        current_id=cur_id, allow_clear=(idx >= 2)))
+                                        current_id=cur_id, allow_clear=(idx >= 2), sprite_kind="ability"))
 
         elif self.mode == "passive":
             _, idx, cur_id, cur_tier, _ = row.data
@@ -732,7 +768,7 @@ class AbilitiesScreen:
             self.app.push(CatalogPicker(ui, self.app, f"Pick Passive {idx + 1}", entries, cats,
                                         lambda e: e.get("class") or "Colorless", pick, detail,
                                         lambda e: (e.get("class") or "Colorless", ui.CLASS_COL.get(e.get("class", ""), ui.DIM)),
-                                        current_id=cur_id, allow_clear=True))
+                                        current_id=cur_id, allow_clear=True, sprite_kind="ability"))
 
         else:
             _, idx, cur_id, _ = row.data
@@ -759,7 +795,8 @@ class AbilitiesScreen:
                 ui.text(surf, f"ID: {e['id']}", (x, box.bottom - 34), 19, ui.FAINT)
 
             self.app.push(CatalogPicker(ui, self.app, f"Pick Disorder {idx + 1}", entries, ["All"],
-                                        lambda _: "All", pick, detail, None, current_id=cur_id, allow_clear=True))
+                                        lambda _: "All", pick, detail, None, current_id=cur_id, allow_clear=True,
+                                        sprite_kind="disorder"))
 
     def handle(self, btn: str) -> None:
         ui = self.ui
@@ -809,10 +846,19 @@ class AbilitiesScreen:
 
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
-        ui.text(surf, row.label, (r.x + 28, r.y + 16), 21, ui.FAINT, "black")
+        sk = "disorder" if self.mode == "disorder" else "ability"
+        eid = row.data[2]
+        badge = pygame.Rect(r.x + 20, r.centery - 32, 64, 64)
+        if eid:
+            bcol = ui.BAD if sk == "disorder" else ui.CLASS_COL.get(row.data[-1].get("class", ""), None)
+            draw_sprite_badge(ui, surf, sk, eid, badge, border_col=bcol)
+        else:
+            ui.rrect(surf, badge, getattr(ui, "WELL", ui.DARK), 14)
+            pygame.draw.rect(surf, ui.LINE, badge, width=2, border_radius=14)
+        ui.text(surf, row.label, (r.x + 102, r.y + 16), 21, ui.FAINT, "black")
         val = row.value or "None"
         col = ui.FAINT if val == "None" else (ui.BAD if self.mode == "disorder" else ui.TEXT)
-        ui.text(surf, val, (r.x + 28, r.bottom - 18), 34, col, "black", anchor="bottomleft", maxw=r.w - 220)
+        ui.text(surf, val, (r.x + 102, r.bottom - 18), 34, col, "black", anchor="bottomleft", maxw=r.w - 300)
         if self.mode == "passive" and row.data[2]:
             tier = row.data[3]
             ui.pill(surf, f"Tier {tier}{'+' if tier == 2 else ''}", r.right - 30, r.centery,
@@ -1155,6 +1201,8 @@ class EquipScreen:
             self.cat_edit.vals["equipment"][row.data[0]] = None
             self.cat_edit.commit_local()
             self.build()
+        elif btn == ui.Y:
+            self.app.push(FullSetPickerScreen(ui, self.cat_edit))
         elif btn == ui.START:
             self.app.write()
         elif btn == ui.B:
@@ -1232,7 +1280,7 @@ class EquipScreen:
         draw_item_detail(ui, surf, box, info)
 
     def hint_items(self):
-        return [("A", "Equip / Swap"), ("X", "Unequip"), ("B", "Done")] + self.ui.pending_hint(self.app)
+        return [("A", "Equip / Swap"), ("Y", "Equip Full Set"), ("X", "Unequip"), ("B", "Done")] + self.ui.pending_hint(self.app)
 
 
 # --------------------------------------------------------------------------- Furniture Tab
@@ -1373,8 +1421,10 @@ class FurnitureTab:
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
         kind, obj, info = row.data
-        ui.text(surf, info["name"], (r.x + 28, r.centery), 30, ui.ACCENT if kind == "queued" else ui.TEXT,
-                "bold", anchor="midleft", maxw=r.w - 380)
+        badge = pygame.Rect(r.x + 14, r.centery - 29, 58, 58)
+        draw_sprite_badge(ui, surf, "furniture", info.get("id"), badge)
+        ui.text(surf, info["name"], (r.x + 86, r.centery), 30, ui.ACCENT if kind == "queued" else ui.TEXT,
+                "bold", anchor="midleft", maxw=r.w - 430)
         ef_str = gd.format_stats(info.get("effects"))
         if ef_str:
             ui.text(surf, ef_str, (r.right - 90, r.centery), 21, ui.GOOD, "bold", anchor="midright", maxw=320)
@@ -1421,24 +1471,27 @@ class FurnitureTab:
         cur = self.list.current
         if cur:
             kind, obj, info = cur.data
-            ui.text(surf, info["name"], (bx, by), 32, ui.TEXT, "black", maxw=bw)
+            ico_box = pygame.Rect(box.right - 28 - 84, by, 84, 84)
+            draw_sprite_badge(ui, surf, "furniture", info.get("id"), ico_box)
+            ui.text(surf, info["name"], (bx, by), 32, ui.TEXT, "black", maxw=bw - 98)
             by += 44
             px = bx
             if info.get("set"):
                 px = ui.pill(surf, f"Set: {info['set']}", px, by, ui.CARD_HI, ui.DIM, size=19).right + 8
             if info.get("special"):
                 ui.pill(surf, "SPECIAL", px, by, ui.ACCENT, ui.DARK, size=19)
-            by += 44
+            by = max(by + 44, ico_box.bottom + 14)
             effects = info.get("effects") or {}
             if effects:
                 ex = bx
                 for ek, ev in effects.items():
                     col = ui.GOOD if ev > 0 else ui.BAD
-                    r = ui.pill(surf, f"{'+' if ev > 0 else ''}{ev} {ek}", ex, by, ui.mix(col, ui.CARD, .72), col, size=20)
-                    if r.right > box.right - 24:
+                    lbl = f"{'+' if ev > 0 else ''}{ev} {ek}"
+                    est_w = ui.F(20, "bold").size(lbl)[0] + 22
+                    if ex > bx and ex + est_w > box.right - 24:
                         ex = bx
                         by += 36
-                        r = ui.pill(surf, f"{'+' if ev > 0 else ''}{ev} {ek}", ex, by, ui.mix(col, ui.CARD, .72), col, size=20)
+                    r = ui.pill(surf, lbl, ex, by, ui.mix(col, ui.CARD, .72), col, size=20)
                     ex = r.right + 8
                 by += 44
             if info.get("desc"):
@@ -1670,3 +1723,404 @@ class PropertiesScreen:
     def hint_items(self):
         return [("A", "Toggle/Inc"), ("DPAD_LR", "Adjust"), ("X", "Zero"), ("SELECT", "Search"),
                 ("B", "Clear" if self.query else "Done")] + self.ui.pending_hint(self.app)
+
+
+# --------------------------------------------------------------------------- Equip Full Armor Set Picker
+
+class FullSetPickerScreen:
+    """Browse all 101 Armor Sets with piece icons & bonuses and equip an entire set in 1 press."""
+
+    def __init__(self, ui, cat_edit) -> None:
+        self.ui = ui
+        self.cat_edit = cat_edit
+        self.app = cat_edit.app
+        self.title = "Equip Full Armor Set"
+        self.sets = pr.armor_sets_catalog()
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
+        self.list = ui.ListView(row_h=88, gap=10)
+        self._rebuild()
+
+    def on_enter(self) -> None:
+        self._rebuild()
+
+    def _filtered(self, q: str) -> list[dict[str, Any]]:
+        if not q:
+            return self.sets
+        toks = q.lower().split()
+        out = []
+        for s in self.sets:
+            hay = " ".join([
+                s["name"], s["desc"], gd.format_stats(s["stats"]),
+                " ".join(it["name"] for it in s["slots"].values()),
+            ]).lower()
+            if all(t in hay for t in toks):
+                out.append(s)
+        return out
+
+    def _rebuild(self) -> None:
+        self.list.set_rows([self.ui.Row(s["name"], data=s) for s in self._filtered(self.query)])
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self._rebuild()
+        self.app.push(SearchModal(self.ui, self.app, "Search Armor Sets", self.query,
+                                  lambda q: len(self._filtered(q)), done))
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        if btn in (ui.UP, ui.DOWN):
+            self.list.move(-1 if btn == ui.UP else 1)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-10 if btn == ui.LT else 10)
+        elif btn == ui.SELECT:
+            self._open_search()
+        elif btn == ui.A and self.list.current:
+            s = self.list.current.data
+            for sk, it in s["slots"].items():
+                self.cat_edit.vals["equipment"][sk] = it["id"]
+            self.cat_edit.commit_local()
+            self.app.pop()
+            self.app.toast(f"Equipped {s['name']} ({len(s['slots'])} pcs)", ui.GOOD, 2.5)
+        elif btn == ui.B:
+            if self.query:
+                self.query = ""
+                self.list.sel = 0
+                self._rebuild()
+            else:
+                self.app.pop()
+
+    def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
+        i = self.list.hit(pos)
+        if i is not None:
+            if i == self.list.sel:
+                self.handle(self.ui.A)
+            self.list.sel = i
+
+    def _render_row(self, surf, r, row, selected: bool) -> None:
+        ui = self.ui
+        s = row.data
+        # Draw up to 3 piece icons on the left
+        ix = r.x + 16
+        for sk in ("head", "face", "neck", "weapon", "trinket"):
+            if sk in s["slots"] and ix + 48 <= r.x + 190:
+                draw_item_badge(ui, surf, s["slots"][sk]["id"], pygame.Rect(ix, r.centery - 24, 48, 48),
+                                s["slots"][sk].get("rarity", ""))
+                ix += 54
+        ui.text(surf, s["name"], (r.x + 194, r.centery), 30, ui.TEXT, "black", anchor="midleft", maxw=r.w - 340)
+        ui.pill(surf, f"{len(s['slots'])} pcs", r.right - 24, r.centery, ui.CARD_HI, ui.ACCENT, size=20, anchor="midright")
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        area = pygame.Rect(ui.PAD, ui.HEADER_H + 18, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 18)
+        ui.text(surf, f"{len(self.list.rows)} armor sets  ·  Press A to equip all matching slots",
+                (area.x, area.y + 18), 22, ui.DIM, anchor="midleft")
+        self.search_rect = draw_search_pill(ui, surf, area.right - 620, area.y + 18, self.query, anchor="midright")
+        la = pygame.Rect(area.x, area.y + 54, area.w - 620, area.h - 54)
+        self.list.draw(surf, la, self._render_row)
+
+        box = pygame.Rect(area.right - 580, area.y, 580, area.h)
+        ui.rrect(surf, box, ui.CARD, 24)
+        if not self.list.current:
+            return
+        s = self.list.current.data
+        x, y, w = box.x + 28, box.y + 26, box.w - 56
+        ui.text(surf, f"ARMOR SET ({s['pieces']} PCS)", (x, y), 18, ui.ACCENT, "black")
+        y += 28
+        ui.text(surf, s["name"], (x, y), 34, ui.TEXT, "black", maxw=w)
+        y += 48
+        st = gd.format_stats(s["stats"])
+        if st:
+            ui.pill(surf, st, x, y, ui.mix(ui.GOOD, ui.CARD, .72), ui.GOOD, size=20)
+            y += 42
+        for ln in wrap_lines(ui.F(23), s["desc"] or "Equip all pieces to activate this set bonus.", w, max_lines=4):
+            ui.text(surf, ln, (x, y), 23, ui.TEXT)
+            y += 30
+        y += 18
+        ui.text(surf, "INCLUDED PIECES", (x, y), 18, ui.FAINT, "black")
+        y += 30
+        for sk in ("weapon", "head", "face", "neck", "trinket"):
+            if sk not in s["slots"]:
+                continue
+            it = s["slots"][sk]
+            draw_item_badge(ui, surf, it["id"], pygame.Rect(x, y, 52, 52), it.get("rarity", ""))
+            ui.text(surf, f"{cb.EQUIP_SLOT_LABELS[sk]}: {it['name']}", (x + 66, y + 14), 23, ui.TEXT, "bold", maxw=w - 66)
+            ist = gd.format_stats(it.get("stats"))
+            if ist:
+                ui.text(surf, ist, (x + 66, y + 36), 19, ui.GOOD, maxw=w - 66)
+            y += 64
+
+    def hint_items(self):
+        return [("A", "Equip Full Set"), ("SELECT", "Search"), ("B", "Clear" if self.query else "Cancel")]
+
+
+# --------------------------------------------------------------------------- Class Collar & House Unlocker
+
+class UnlocksScreen:
+    """Unlock Class Collars (files['unlocks']) and House Upgrades (files['house_unlocks'])."""
+
+    def __init__(self, ui, app) -> None:
+        self.ui = ui
+        self.app = app
+        self.title = "Class & House Unlocks"
+        self.orig_cls = list(app.snap.parsed["unlocks"]["classes"])
+        self.cur_cls = list(app.pending.unlocks_classes) if app.pending.unlocks_classes is not None else list(self.orig_cls)
+        self.orig_hu = list(app.snap.parsed["house_unlocks"]["upgrades"])
+        self.cur_hu = list(app.pending.unlocks_house) if app.pending.unlocks_house is not None else list(self.orig_hu)
+        self.list = ui.ListView(row_h=82, gap=10)
+        self._rebuild()
+
+    def on_enter(self) -> None:
+        self._rebuild()
+
+    def _commit(self) -> None:
+        self.app.pending.unlocks_classes = None if self.cur_cls == self.orig_cls else list(self.cur_cls)
+        self.app.pending.unlocks_house = None if self.cur_hu == self.orig_hu else list(self.cur_hu)
+
+    def _rebuild(self) -> None:
+        ui = self.ui
+        rows = [ui.Row("Unlock All 14 Classes", data=("all_cls", None))]
+        for cls in cb.CAT_CLASSES:
+            rows.append(ui.Row(cls, data=("cls", cls)))
+        all_hu = list(dict.fromkeys(list(self.orig_hu) + list(cb.ALL_HOUSE_UPGRADES)))
+        for hu in all_hu:
+            rows.append(ui.Row(hu.replace("_", " "), data=("hu", hu)))
+        self.list.set_rows(rows)
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        row = self.list.current
+        if btn in (ui.UP, ui.DOWN):
+            self.list.move(-1 if btn == ui.UP else 1)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-8 if btn == ui.LT else 8)
+        elif btn == ui.A and row:
+            kind, val = row.data
+            if kind == "all_cls":
+                for c in cb.CAT_CLASSES:
+                    if c not in self.cur_cls:
+                        self.cur_cls.append(c)
+                self._commit()
+                self.app.toast("All 14 classes unlocked · Menu to save", ui.GOOD, 2.5)
+            elif kind == "cls":
+                if val in self.cur_cls:
+                    if val != "Colorless":
+                        self.cur_cls.remove(val)
+                else:
+                    self.cur_cls.append(val)
+                self._commit()
+            elif kind == "hu":
+                if val in self.cur_hu:
+                    if val != "Default":
+                        self.cur_hu.remove(val)
+                else:
+                    self.cur_hu.append(val)
+                self._commit()
+        elif btn == ui.START:
+            self.app.write()
+        elif btn == ui.B:
+            self.app.pop()
+
+    def click(self, pos) -> None:
+        i = self.list.hit(pos)
+        if i is not None:
+            if i == self.list.sel:
+                self.handle(self.ui.A)
+            self.list.sel = i
+
+    def _render_row(self, surf, r, row, selected: bool) -> None:
+        ui = self.ui
+        kind, val = row.data
+        if kind == "all_cls":
+            ui.text(surf, row.label, (r.x + 28, r.centery), 31, ui.GOOD, "black", anchor="midleft")
+            ui.pill(surf, f"{len(self.cur_cls)}/14", r.right - 26, r.centery, ui.GOOD, ui.DARK, size=20, anchor="midright")
+        elif kind == "cls":
+            on = val in self.cur_cls
+            badge = pygame.Rect(r.x + 16, r.centery - 27, 54, 54)
+            draw_sprite_badge(ui, surf, "class", val, badge, border_col=ui.CLASS_COL.get(val))
+            ui.text(surf, f"{val} Collar", (r.x + 86, r.centery), 30, ui.TEXT if on else ui.DIM, "bold", anchor="midleft")
+            ui.pill(surf, "UNLOCKED" if on else "LOCKED", r.right - 26, r.centery,
+                    ui.GOOD if on else ui.CARD_HI, ui.DARK if on else ui.DIM, size=19, anchor="midright")
+        else:
+            on = val in self.cur_hu
+            ui.text(surf, f"House: {row.label}", (r.x + 28, r.centery), 28, ui.TEXT if on else ui.DIM, "bold", anchor="midleft")
+            ui.pill(surf, "UNLOCKED" if on else "LOCKED", r.right - 26, r.centery,
+                    ui.INFO if on else ui.CARD_HI, ui.DARK if on else ui.DIM, size=19, anchor="midright")
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        area = pygame.Rect(ui.PAD, ui.HEADER_H + 22, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 22)
+        la = pygame.Rect(area.x, area.y, area.w - 580, area.h)
+        self.list.draw(surf, la, self._render_row)
+
+        box = pygame.Rect(area.right - 540, area.y, 540, area.h)
+        ui.rrect(surf, box, ui.CARD, 24)
+        x, y, w = box.x + 28, box.y + 28, box.w - 56
+        ui.text(surf, "CAMPAIGN UNLOCKS", (x, y), 18, ui.ACCENT, "black")
+        y += 34
+        ui.text(surf, f"Classes: {len(self.cur_cls)} / {len(cb.CAT_CLASSES)}", (x, y), 30, ui.TEXT, "black")
+        y += 42
+        ui.text(surf, f"House Upgrades: {len(self.cur_hu)}", (x, y), 26, ui.INFO, "bold")
+        y += 50
+        note = "Toggle any Class Collar or House Room upgrade directly in your save's unlocks table. Press Menu to save safely with backup."
+        for ln in wrap_lines(ui.F(23), note, w, max_lines=5):
+            ui.text(surf, ln, (x, y), 23, ui.DIM)
+            y += 30
+
+    def hint_items(self):
+        return [("A", "Toggle / Unlock"), ("B", "Done")] + self.ui.pending_hint(self.app)
+
+
+# --------------------------------------------------------------------------- Cat Build Presets & Clone/Paste
+
+class PresetsScreen:
+    """Apply built-in or user-saved cat build templates, or copy/paste a cat build."""
+
+    def __init__(self, ui, cat_edit) -> None:
+        self.ui = ui
+        self.cat_edit = cat_edit
+        self.app = cat_edit.app
+        self.title = "Build Presets & Clone"
+        self.list = ui.ListView(row_h=88, gap=10)
+        self._rebuild()
+
+    def on_enter(self) -> None:
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        ui = self.ui
+        rows = [
+            ui.Row("Copy This Cat's Build to Clipboard", data=("copy", None)),
+        ]
+        clip = getattr(self.app, "cat_clipboard", None)
+        if clip:
+            rows.append(ui.Row(f"Paste Build from '{clip['name']}'", data=("paste", clip)))
+        rows.append(ui.Row("Save This Cat as Custom Preset...", data=("save_new", None)))
+        for p in pr.load_user_presets():
+            rows.append(ui.Row(p["name"], data=("preset", p)))
+        for p in pr.BUILTIN_PRESETS:
+            rows.append(ui.Row(p["name"], data=("preset", p)))
+        self.list.set_rows(rows)
+
+    def _apply_preset(self, p: dict[str, Any]) -> None:
+        v = self.cat_edit.vals
+        if "class" in p:
+            v["class"] = p["class"]
+            if v["abilities"]["active"][1] in cb.CLASS_BASIC_ATTACK.values():
+                v["abilities"]["active"][1] = cb.CLASS_BASIC_ATTACK.get(p["class"], "BasicMelee")
+        if "stats" in p:
+            v["stats"] = dict(p["stats"])
+        if "level_bonuses" in p:
+            v["level_bonuses"] = dict(p["level_bonuses"])
+        if "abilities" in p:
+            for k in ("active", "passive", "passive_tiers", "disorder", "disorder_tiers"):
+                if k in p["abilities"]:
+                    v["abilities"][k] = list(p["abilities"][k])
+        if "equipment" in p:
+            v["equipment"] = dict(p["equipment"])
+        if p.get("heal"):
+            v["heal"] = True
+        if "retired" in p:
+            v["retired"] = bool(p["retired"])
+        if p.get("clear_disorders"):
+            v["abilities"]["disorder"] = [None, None]
+            v["abilities"]["disorder_tiers"] = [1, 1]
+        if p.get("clear_defects"):
+            for k, mv in list(v["mutations"].items()):
+                if k != "coat" and gd.signed_mut_id(mv) == -2:
+                    v["mutations"][k] = 1
+        self.cat_edit.commit_local()
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        row = self.list.current
+        if btn in (ui.UP, ui.DOWN):
+            self.list.move(-1 if btn == ui.UP else 1)
+        elif btn == ui.A and row:
+            kind, obj = row.data
+            if kind == "copy":
+                self.app.cat_clipboard = pr.snapshot_cat_as_preset(self.cat_edit.vals, self.cat_edit.vals["name"] or "Cat")
+                self._rebuild()
+                self.app.toast(f"Copied build from {self.cat_edit.vals['name']}", ui.INFO, 2.2)
+            elif kind == "paste":
+                self._apply_preset(obj)
+                self.app.pop()
+                self.app.toast(f"Pasted build from {obj['name']}", ui.GOOD, 2.5)
+            elif kind == "save_new":
+                def done(nm: str) -> None:
+                    if nm:
+                        pr.save_user_preset(pr.snapshot_cat_as_preset(self.cat_edit.vals, nm))
+                        self._rebuild()
+                        self.app.toast(f"Saved preset '{nm}'", ui.GOOD, 2.5)
+                self.app.push(SearchModal(ui, self.app, "Name Custom Preset", self.cat_edit.vals["name"], None,
+                                          done, done_label="Save Preset", title_case=True))
+            elif kind == "preset":
+                self._apply_preset(obj)
+                self.app.pop()
+                self.app.toast(f"Applied preset: {obj['name']}", ui.GOOD, 2.5)
+        elif btn == ui.X and row and row.data[0] == "preset" and row.data[1].get("user"):
+            pr.delete_user_preset(row.data[1]["name"])
+            self._rebuild()
+            self.app.toast(f"Deleted preset '{row.data[1]['name']}'", ui.ACCENT, 2.0)
+        elif btn == ui.B:
+            self.app.pop()
+
+    def click(self, pos) -> None:
+        i = self.list.hit(pos)
+        if i is not None:
+            if i == self.list.sel:
+                self.handle(self.ui.A)
+            self.list.sel = i
+
+    def _render_row(self, surf, r, row, selected: bool) -> None:
+        ui = self.ui
+        kind, obj = row.data
+        if kind in ("copy", "paste", "save_new"):
+            col = ui.GOOD if kind == "paste" else ui.ACCENT if kind == "save_new" else ui.INFO
+            ui.text(surf, row.label, (r.x + 28, r.centery), 29, col, "black", anchor="midleft")
+        else:
+            ui.text(surf, obj["name"], (r.x + 28, r.y + 14), 29, ui.TEXT, "black", maxw=r.w - 180)
+            ui.text(surf, obj.get("desc", ""), (r.x + 28, r.bottom - 14), 20, ui.DIM, anchor="bottomleft", maxw=r.w - 160)
+            tag = "CUSTOM" if obj.get("user") else "TEMPLATE"
+            ui.pill(surf, tag, r.right - 24, r.centery, ui.ACCENT if obj.get("user") else ui.CARD_HI,
+                    ui.DARK if obj.get("user") else ui.DIM, size=17, anchor="midright")
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        area = pygame.Rect(ui.PAD, ui.HEADER_H + 22, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 22)
+        la = pygame.Rect(area.x, area.y, area.w - 580, area.h)
+        self.list.draw(surf, la, self._render_row)
+
+        box = pygame.Rect(area.right - 540, area.y, 540, area.h)
+        ui.rrect(surf, box, ui.CARD, 24)
+        x, y, w = box.x + 28, box.y + 28, box.w - 56
+        ui.text(surf, "BUILD PRESETS & CLONING", (x, y), 18, ui.ACCENT, "black")
+        y += 36
+        cur = self.list.current
+        if cur and cur.data[0] in ("preset", "paste"):
+            p = cur.data[1]
+            ui.text(surf, p["name"], (x, y), 32, ui.TEXT, "black", maxw=w)
+            y += 46
+            for ln in wrap_lines(ui.F(23), p.get("desc", ""), w, max_lines=4):
+                ui.text(surf, ln, (x, y), 23, ui.DIM)
+                y += 30
+            y += 16
+            if p.get("class"):
+                ui.text(surf, f"Class: {p['class']}", (x, y), 23, ui.INFO, "bold")
+                y += 32
+            if p.get("stats"):
+                st = " · ".join(f"{k} {v}" for k, v in p["stats"].items())
+                ui.text(surf, st, (x, y), 21, ui.GOOD, "bold", maxw=w)
+        else:
+            note = "Copy this cat's full build (stats, class, abilities, gear) to paste onto another cat, or save it as a reusable custom preset."
+            for ln in wrap_lines(ui.F(23), note, w, max_lines=5):
+                ui.text(surf, ln, (x, y), 23, ui.DIM)
+                y += 30
+
+    def hint_items(self):
+        return [("A", "Apply / Run"), ("X", "Delete Custom"), ("B", "Back")]

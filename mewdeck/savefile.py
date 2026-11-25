@@ -447,6 +447,12 @@ def parse_save(data: bytes) -> dict[str, Any]:
             cat["lover_name"] = all_cats_by_key[lid]["name"] if lid in all_cats_by_key else ""
             cat["hater_name"] = all_cats_by_key[hid]["name"] if hid in all_cats_by_key else ""
 
+        # Unlocks & house unlocks
+        u_row = conn.execute("SELECT data FROM files WHERE key='unlocks'").fetchone()
+        unlocks = cb.parse_unlocks_blob(u_row[0]) if u_row and u_row[0] else cb.parse_unlocks_blob(None)
+        hu_row = conn.execute("SELECT data FROM files WHERE key='house_unlocks'").fetchone()
+        house_unlocks = cb.parse_house_unlocks_blob(hu_row[0]) if hu_row and hu_row[0] else cb.parse_house_unlocks_blob(None)
+
         return {
             "basic": basic,
             "cats": active_cats,
@@ -456,6 +462,8 @@ def parse_save(data: bytes) -> dict[str, Any]:
             "furniture": {"placed": furn_placed, "unplaced": furn_unplaced},
             "rooms": rooms,
             "pedigree": pedigree,
+            "unlocks": unlocks,
+            "house_unlocks": house_unlocks,
             "total_cats": len(active_cats),
             "total_graveyard": len(graveyard_cats),
             "total_furniture": len(furn_placed) + len(furn_unplaced),
@@ -566,6 +574,11 @@ class Changes:
     furn_remove: list[int] = field(default_factory=list)
     heal_all: bool = False
     repair_all: bool = False
+    clear_party_disorders: bool = False
+    max_party_stats: bool = False
+    strip_all_defects: bool = False
+    unlocks_classes: list[str] | None = None
+    unlocks_house: list[str] | None = None
     steven: str | None = None
     guard: bool | None = None
     add_items: list[str] | None = None
@@ -582,7 +595,10 @@ class Changes:
         return not (
             self.props or self.cats or self.room_moves or self.inv_total()
             or self.furn_add or self.furn_remove
-            or self.heal_all or self.repair_all or self.steven or self.guard is not None
+            or self.heal_all or self.repair_all
+            or self.clear_party_disorders or self.max_party_stats or self.strip_all_defects
+            or self.unlocks_classes is not None or self.unlocks_house is not None
+            or self.steven or self.guard is not None
         )
 
     def count(self) -> int:
@@ -595,6 +611,11 @@ class Changes:
             + len(self.furn_remove)
             + (1 if self.heal_all else 0)
             + (1 if self.repair_all else 0)
+            + (1 if self.clear_party_disorders else 0)
+            + (1 if self.max_party_stats else 0)
+            + (1 if self.strip_all_defects else 0)
+            + (1 if self.unlocks_classes is not None else 0)
+            + (1 if self.unlocks_house is not None else 0)
             + (1 if self.steven else 0)
             + (1 if self.guard is not None else 0)
         )
@@ -639,11 +660,24 @@ def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path
             set_prop(conn, prop_key, int(value))
         current_day = get_prop(conn, "current_day") or before["basic"]["current_day"]
 
-        # 2. Cat edits (including heal_all and revive)
+        # 2. Cat edits (including heal_all, batch party actions, strip_all_defects, and revive)
         cat_edits: dict[int, dict[str, Any]] = {k: dict(v) for k, v in changes.cats.items()}
         if changes.heal_all:
             for c in before["cats"]:
                 cat_edits.setdefault(c["key"], {})["heal"] = True
+        if changes.clear_party_disorders:
+            for c in before["cats"]:
+                if c["room"] == "(ADVENTURE)":
+                    ab = cat_edits.setdefault(c["key"], {}).setdefault("abilities", {})
+                    ab["disorder"] = [None, None]
+                    ab["disorder_tiers"] = [1, 1]
+        if changes.max_party_stats:
+            for c in before["cats"]:
+                if c["room"] == "(ADVENTURE)":
+                    cat_edits.setdefault(c["key"], {})["stats"] = {s: 7 for s in cb.STAT_NAMES}
+        if changes.strip_all_defects:
+            for c in before["cats"]:
+                cat_edits.setdefault(c["key"], {})["strip_defects"] = True
 
         next_seq = _max_seq_id(conn) + 1
         revived_keys: list[int] = []
@@ -755,6 +789,18 @@ def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path
                 })
                 conn.execute("INSERT INTO furniture (key, data) VALUES (?, ?)", (max_key, sqlite3.Binary(blob)))
 
+        # 4b. Unlocks & house_unlocks
+        if changes.unlocks_classes is not None:
+            u = dict(before["unlocks"])
+            u["classes"] = list(changes.unlocks_classes)
+            blob_u = sqlite3.Binary(cb.serialize_unlocks_blob(u))
+            conn.execute("UPDATE files SET data=? WHERE key='unlocks'", (blob_u,))
+        if changes.unlocks_house is not None:
+            hu = dict(before["house_unlocks"])
+            hu["upgrades"] = list(changes.unlocks_house)
+            blob_hu = sqlite3.Binary(cb.serialize_house_unlocks_blob(hu))
+            conn.execute("UPDATE files SET data=? WHERE key='house_unlocks'", (blob_hu,))
+
         # 5. Steven reset & auto-block guard
         if changes.guard is not None:
             set_guard(conn, False)
@@ -840,6 +886,10 @@ def verify(before: dict[str, Any], after: dict[str, Any], changes: Changes) -> N
     exp_f = before["total_furniture"] + len(changes.furn_add) - len(set(changes.furn_remove))
     if after["total_furniture"] != exp_f:
         raise RuntimeError("verification failed: furniture count mismatch")
+    if changes.unlocks_classes is not None and after["unlocks"]["classes"] != list(changes.unlocks_classes):
+        raise RuntimeError("verification failed: unlocks classes mismatch")
+    if changes.unlocks_house is not None and after["house_unlocks"]["upgrades"] != list(changes.unlocks_house):
+        raise RuntimeError("verification failed: house unlocks mismatch")
 
 
 def cat_editable(snap: "Snapshot", cat: dict[str, Any]) -> dict[str, bool]:
@@ -932,6 +982,50 @@ def check_integrity(path: Path) -> tuple[bool, list[str]]:
         ok = False
         notes.append(f"Check failed: {e}")
     return ok, notes
+
+
+def clone_save(src: Path) -> Path:
+    """Clone a campaign .sav into the next free slot (e.g., steamcampaign02.sav) safely."""
+    data, was_wal = read_bytes(src)
+    m = re.match(r"^(.*?)(\d+)$", src.stem)
+    prefix = m.group(1) if m else (src.stem + "_")
+    n = int(m.group(2)) + 1 if m else 2
+    while True:
+        cand = src.with_name(f"{prefix}{n:02d}{src.suffix}")
+        if not cand.exists():
+            break
+        n += 1
+    _write_atomic(cand, data, was_wal)
+    return cand
+
+
+def diff_snapshots(cur: Snapshot, bak: Snapshot) -> list[tuple[str, str, str]]:
+    """Compare current save against a backup. Returns list of (label, backup_val, delta_str)."""
+    cb_b, bb_b = cur.parsed["basic"], bak.parsed["basic"]
+    rows: list[tuple[str, str, str]] = []
+    for k, lbl in (
+        ("current_day", "Day"),
+        ("house_gold", "Home Gold"),
+        ("house_food", "Home Food"),
+        ("adventure_coins", "Adv Coins"),
+        ("adventure_food", "Adv Food"),
+    ):
+        cv, bv = int(cb_b.get(k, 0)), int(bb_b.get(k, 0))
+        d = bv - cv
+        rows.append((lbl, f"{bv:,}", f"{d:+,}" if d else "same"))
+    for lbl, cv, bv in (
+        ("Active Cats", cur.parsed["total_cats"], bak.parsed["total_cats"]),
+        ("Graveyard", cur.parsed["total_graveyard"], bak.parsed["total_graveyard"]),
+        ("Home Items", len(cur.parsed["items"]["storage"]), len(bak.parsed["items"]["storage"])),
+        ("Adv Items", len(cur.parsed["items"]["backpack"]), len(bak.parsed["items"]["backpack"])),
+        ("Furniture", cur.parsed["total_furniture"], bak.parsed["total_furniture"]),
+    ):
+        d = bv - cv
+        rows.append((lbl, str(bv), f"{d:+d}" if d else "same"))
+    s_cur = "ON" if cur.steven.active else "clear"
+    s_bak = "ON" if bak.steven.active else "clear"
+    rows.append(("Steven", s_bak, "same" if s_cur == s_bak else f"was {s_cur}"))
+    return rows
 
 
 def cat_change_base(snap: Snapshot, cat: dict[str, Any]) -> dict[str, Any]:
