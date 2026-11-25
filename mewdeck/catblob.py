@@ -131,6 +131,33 @@ def parse_cat_blob(wrapped: bytes, key: int, room: str, current_day: int) -> dic
     dead = bool(flags & 0x0020)
     donated = bool(flags & 0x4000)
 
+    # Personality & relationships block (between flags and body parts)
+    libido = 0.5
+    sexuality = 0.0
+    lover_id: int | None = None
+    aggression = 0.5
+    hater_id: int | None = None
+    fertility = 1.0
+    try:
+        _, p_after = _read_u64_str(dec, after_tag + 16)
+        po = p_after + 4
+        if po + 64 <= n:
+            lib, sexu, lvr, _la, agg, htr, _ha, fert = struct.unpack_from("<ddQddQdd", dec, po)
+            if 0.0 <= lib <= 2.0:
+                libido = lib
+            if 0.0 <= sexu <= 2.0:
+                sexuality = sexu
+            if lvr != 0xFFFFFFFFFFFFFFFF and lvr != 0:
+                lover_id = int(lvr)
+            if 0.0 <= agg <= 2.0:
+                aggression = agg
+            if htr != 0xFFFFFFFFFFFFFFFF and htr != 0:
+                hater_id = int(htr)
+            if 0.0 <= fert <= 10.0:
+                fertility = fert
+    except Exception:
+        pass
+
     # Mutations / appearance table (16B header + 14 * 20B slots = 296B)
     mbase = after_tag + 92
     scale = struct.unpack_from("<f", dec, mbase)[0]
@@ -270,6 +297,15 @@ def parse_cat_blob(wrapped: bytes, key: int, room: str, current_day: int) -> dic
         "room": room,
         "birth_day": birth_day,
         "death_day": death_day,
+        "libido": libido,
+        "sexuality": sexuality,
+        "lover_id": lover_id,
+        "aggression": aggression,
+        "hater_id": hater_id,
+        "fertility": fertility,
+        "coi": float(xp_frac) if (0.0 <= xp_frac <= 1.0) else 0.0,
+        "parent_a": None,
+        "parent_b": None,
         # Internal metadata for editing/verification
         "_blob_ver": blob_ver,
         "_variant": variant,
@@ -638,3 +674,49 @@ def serialize_house_state_full(entries: list[dict[str, Any]]) -> bytes:
         p0, p1, p2 = e.get("pos", (0.0, 0.0, 0.0))
         out.extend(struct.pack("<3d", float(p0), float(p1), float(p2)))
     return bytes(out)
+
+
+# --------------------------------------------------------------------------- pedigree (read-only CoI & parents)
+
+_PEDIGREE_NULL = 0xFFFFFFFFFFFFFFFF
+_PEDIGREE_VER = 0xFFFFFFFFFFFFFFF5
+
+
+def parse_pedigree_blob(raw: Any) -> dict[str, Any]:
+    """Parse `files['pedigree']` (two parallel hashmaps: child->parents+CoI and pair->CoI)."""
+    empty: dict[str, Any] = {"parents": {}, "pair_coi": {}}
+    if not raw:
+        return empty
+    b = _mp.to_bytes(raw)
+    if len(b) < 24:
+        return empty
+    try:
+        ver, _sz, cap = struct.unpack_from("<QQQ", b, 0)
+        if ver != _PEDIGREE_VER or cap > 1_000_000:
+            return empty
+        h_start = 24
+        d_start = h_start + cap + 1 + 16
+        parents: dict[int, tuple[int, int, float]] = {}
+        for i in range(cap):
+            if b[h_start + i] <= 0x7F:
+                off = d_start + i * 32
+                cid, pa, pb, coi = struct.unpack_from("<QQQd", b, off)
+                if cid and cid != _PEDIGREE_NULL and pa != _PEDIGREE_NULL and pb != _PEDIGREE_NULL:
+                    parents[int(cid)] = (int(pa), int(pb), float(coi) if (0.0 <= coi <= 1.0) else 0.0)
+
+        hm2_off = d_start + cap * 32 + 8
+        pair_coi: dict[tuple[int, int], float] = {}
+        if hm2_off + 24 <= len(b):
+            ver2, _sz2, cap2 = struct.unpack_from("<QQQ", b, hm2_off)
+            if ver2 == _PEDIGREE_VER and cap2 <= 2_000_000:
+                h2 = hm2_off + 24
+                d2 = h2 + cap2 + 1 + 16
+                if d2 + cap2 * 24 <= len(b):
+                    for i in range(cap2):
+                        if b[h2 + i] <= 0x7F:
+                            pa, pb, coi = struct.unpack_from("<QQd", b, d2 + i * 24)
+                            if pa != _PEDIGREE_NULL and pb != _PEDIGREE_NULL:
+                                pair_coi[(int(pa), int(pb))] = float(coi) if (0.0 <= coi <= 1.0) else 0.0
+        return {"parents": parents, "pair_coi": pair_coi}
+    except Exception:
+        return empty

@@ -432,6 +432,21 @@ def parse_save(data: bytes) -> dict[str, Any]:
         rooms = sorted({e["room"] for e in house_entries if e["room"]}
                        | {f["room"] for f in furn_placed if f["room"]})
 
+        # Pedigree & relationship enrichment
+        ped_row = conn.execute("SELECT data FROM files WHERE key='pedigree'").fetchone()
+        pedigree = cb.parse_pedigree_blob(ped_row[0]) if ped_row and ped_row[0] else {"parents": {}, "pair_coi": {}}
+        ped_parents = pedigree["parents"]
+        for k, cat in all_cats_by_key.items():
+            if k in ped_parents:
+                pa, pb, pcoi = ped_parents[k]
+                cat["parent_a"] = pa
+                cat["parent_b"] = pb
+                cat["coi"] = pcoi
+            lid = cat.get("lover_id")
+            hid = cat.get("hater_id")
+            cat["lover_name"] = all_cats_by_key[lid]["name"] if lid in all_cats_by_key else ""
+            cat["hater_name"] = all_cats_by_key[hid]["name"] if hid in all_cats_by_key else ""
+
         return {
             "basic": basic,
             "cats": active_cats,
@@ -440,6 +455,7 @@ def parse_save(data: bytes) -> dict[str, Any]:
             "items": items_data,
             "furniture": {"placed": furn_placed, "unplaced": furn_unplaced},
             "rooms": rooms,
+            "pedigree": pedigree,
             "total_cats": len(active_cats),
             "total_graveyard": len(graveyard_cats),
             "total_furniture": len(furn_placed) + len(furn_unplaced),

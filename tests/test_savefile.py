@@ -236,6 +236,39 @@ def test_real_save_v12_features():
     assert any(int(x["instance_id"]) == int(stor_item["instance_id"]) for x in s2.parsed["items"]["backpack"])
 
 
+def test_real_save_pedigree_and_breeding_organizer():
+    """Verify pedigree CoI parsing, wiki item icon atlas, and breeding room optimizer round-trip."""
+    from mewdeck import breeding as br, gamedata as gd
+    real = os.environ.get("MEWDECK_TEST_SAVE")
+    if not real or not Path(real).is_file():
+        return
+    # Verify wiki item icon atlas exists and maps >95% of catalog items
+    atlas_png = gd.DATA_DIR / "items/item_icons.png"
+    atlas_json = gd.DATA_DIR / "items/item_icons.json"
+    assert atlas_png.is_file() and atlas_png.stat().st_size > 100_000
+    import json
+    meta = json.loads(atlas_json.read_text(encoding="utf-8"))
+    assert len(meta["icons"]) >= 950
+
+    tmp = Path(tempfile.mkdtemp())
+    p = tmp / "campaign.sav"
+    shutil.copy2(real, p)
+    snap = sf.snapshot(p)
+    ped = snap.parsed["pedigree"]
+    assert len(ped["parents"]) > 0 and len(ped["pair_coi"]) > 0
+
+    specs = br.compute_room_specs(snap.parsed)
+    assert len(specs) >= 1
+    res = br.optimize_house(snap.parsed, specs, goal_id="balanced")
+    assert res.total_ens > 0
+    if res.moves:
+        ch = sf.Changes(room_moves=dict(res.moves))
+        sf.apply_changes(p, ch, reason="breeding-opt")
+        s2 = sf.snapshot(p)
+        for ck, want_room in res.moves.items():
+            assert s2.parsed["all_cats"][ck]["room"] == want_room
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

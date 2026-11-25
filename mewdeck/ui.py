@@ -20,9 +20,11 @@ from typing import Any, Callable
 
 import pygame
 
+from . import breeding as br
 from . import catblob as cb
 from . import editors as ed
 from . import gamedata as gd
+from . import organizer as org
 from . import savefile as sf
 
 W, H = 1920, 1080  # native 1080p (16:9, ROG Ally native panel)
@@ -663,7 +665,15 @@ class Hub(Screen):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.tabs: list[Tab] = [HomeTab(app), CatsTab(app), ItemsTab(app), ed.FurnitureTab(sys.modules[__name__], app), BackupsTab(app)]
+        mod = sys.modules[__name__]
+        self.tabs: list[Tab] = [
+            HomeTab(app),
+            CatsTab(app),
+            org.BreedingTab(mod, app),
+            ItemsTab(app),
+            ed.FurnitureTab(mod, app),
+            BackupsTab(app),
+        ]
         self.i = 0
         self.ul = RectAnim()
         self.tab_rects: list[pygame.Rect] = []
@@ -721,6 +731,8 @@ class Hub(Screen):
             badge = ""
             if isinstance(t, CatsTab):
                 badge = str(self.app.snap.parsed["total_cats"])
+            elif isinstance(t, org.BreedingTab) and self.app.pending.room_moves:
+                badge = str(len(self.app.pending.room_moves))
             elif isinstance(t, ItemsTab) and self.app.pending.inv_total():
                 badge = f"{self.app.pending.inv_total()}"
             elif isinstance(t, ed.FurnitureTab):
@@ -1053,38 +1065,68 @@ class CatsTab(Tab):
         ("House", "active", lambda c: c["room"] != "(ADVENTURE)"),
         ("Adventure", "active", lambda c: c["room"] == "(ADVENTURE)"),
         ("All Active", "active", lambda c: True),
+        ("Injured", "active", lambda c: c["injured"] or c["wounded"]),
+        ("Mutated", "active", lambda c: any(v >= 300 for k, v in c["mutations"].items() if k != "coat")),
         ("Retired", "active", lambda c: c["retired"]),
         ("Graveyard", "graveyard", lambda c: True),
+    ]
+    SEX_FILTERS = ("All Sex", "Male", "Female", "Ditto")
+    SORTS = [
+        ("Room", lambda c: (c["room"] != "(ADVENTURE)", c["room"], c["name"].lower())),
+        ("Stats", lambda c: (-br.stat_sum(c), -br.perfect_sevens(c), c["name"].lower())),
+        ("7s", lambda c: (-br.perfect_sevens(c), -br.stat_sum(c), c["name"].lower())),
+        ("Breed Score", lambda c: (-br.cat_breed_score(c), c["name"].lower())),
+        ("Level", lambda c: (-c["level"], c["name"].lower())),
+        ("Age (Young)", lambda c: (c["age"], c["name"].lower())),
+        ("Age (Old)", lambda c: (-c["age"], c["name"].lower())),
+        ("Inbred", lambda c: (-c.get("coi", 0.0), c["name"].lower())),
+        ("Class", lambda c: (c["class"], c["name"].lower())),
     ]
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
         self.list = ListView(row_h=118, gap=11)
         self.f = 0
+        self.s_idx = 0
+        self.sex_idx = 0
         self.query = ""
         self.search_rect: pygame.Rect | None = None
-        self.chip_rects: list[pygame.Rect] = []
+        self.sort_rect: pygame.Rect | None = None
+        self.sex_rect: pygame.Rect | None = None
+        self.chip_rects: list[tuple[pygame.Rect, int]] = []
 
     @staticmethod
     def _cat_matches(c: dict[str, Any], q: str) -> bool:
         if not q:
             return True
         ab = c["abilities"]
-        names = [c["name"], c["class"], c["room"], gd.injury_info(c["injury"])["name"]]
+        names = [
+            c["name"], c["class"], c["room"], c["sex"],
+            gd.injury_info(c["injury"])["name"],
+            c.get("lover_name", ""), c.get("hater_name", ""),
+            "inbred" if c.get("coi", 0.0) >= 0.20 else "",
+            "mutated" if br.mutation_count(c) else "",
+        ]
         names += [gd.active_info(a)["name"] for a in ab["active"] if a]
         names += [gd.passive_info(p)["name"] for p in ab["passive"] if p]
         names += [gd.disorder_info(d)["name"] for d in ab["disorder"] if d]
         hay = " ".join(str(x) for x in names).lower()
         return all(tok in hay for tok in q.lower().split())
 
-    def _pool(self, idx: int, q: str = "") -> list[dict[str, Any]]:
+    def _pool(self, idx: int, q: str = "", apply_sex: bool = True) -> list[dict[str, Any]]:
         _, src, pred = self.FILTERS[idx]
         cats = self.app.snap.parsed["graveyard"] if src == "graveyard" else self.app.snap.parsed["cats"]
-        return [c for c in cats if pred(c) and self._cat_matches(c, q)]
+        sex_f = self.SEX_FILTERS[self.sex_idx] if apply_sex else "All Sex"
+        return [
+            c for c in cats
+            if pred(c)
+            and (sex_f == "All Sex" or c["sex"] == sex_f)
+            and self._cat_matches(c, q)
+        ]
 
     def on_enter(self) -> None:
-        cats = sorted(self._pool(self.f, self.query),
-                      key=lambda c: (c["room"] != "(ADVENTURE)", c["room"], c["name"].lower()))
+        sort_fn = self.SORTS[self.s_idx][1]
+        cats = sorted(self._pool(self.f, self.query), key=sort_fn)
         self.list.set_rows([Row(c["name"] or f"#{c['key']}", data=c) for c in cats])
 
     def _open_search(self) -> None:
@@ -1104,10 +1146,16 @@ class CatsTab(Tab):
             self.f = (self.f + (1 if btn == RIGHT else -1)) % len(self.FILTERS)
             self.list.sel = 0
             self.on_enter()
+        elif btn == Y:
+            self.s_idx = (self.s_idx + 1) % len(self.SORTS)
+            self.list.sel = 0
+            self.on_enter()
+            self.app.toast(f"Sort: {self.SORTS[self.s_idx][0]}", ACCENT, 1.5)
         elif btn == SELECT:
             self._open_search()
-        elif btn == B and self.query:
+        elif btn == B and (self.query or self.sex_idx):
             self.query = ""
+            self.sex_idx = 0
             self.list.sel = 0
             self.on_enter()
         elif btn == A and self.list.current:
@@ -1130,7 +1178,15 @@ class CatsTab(Tab):
         if self.search_rect and self.search_rect.collidepoint(pos):
             self._open_search()
             return
-        for i, r in enumerate(self.chip_rects):
+        if self.sort_rect and self.sort_rect.collidepoint(pos):
+            self.handle(Y)
+            return
+        if self.sex_rect and self.sex_rect.collidepoint(pos):
+            self.sex_idx = (self.sex_idx + 1) % len(self.SEX_FILTERS)
+            self.list.sel = 0
+            self.on_enter()
+            return
+        for r, i in self.chip_rects:
             if r.collidepoint(pos):
                 self.f = i
                 self.list.sel = 0
@@ -1156,7 +1212,7 @@ class CatsTab(Tab):
         bx = name_r.right + 12
         if pend_c.get("revive"):
             bx = pill(surf, "REVIVING", bx, name_r.centery, GOOD, DARK, size=18, anchor="midleft").right + 8
-        elif pend_c:
+        elif pend_c or c["key"] in self.app.pending.room_moves:
             bx = pill(surf, "EDITED", bx, name_r.centery, ACCENT, DARK, size=18, anchor="midleft").right + 8
         if c["room"] == "(ADVENTURE)":
             bx = pill(surf, "ADV PARTY", bx, name_r.centery, INFO, DARK, size=17, anchor="midleft").right + 8
@@ -1164,12 +1220,15 @@ class CatsTab(Tab):
             inj_lbl = gd.injury_info(c["injury"])["name"] if c["injury"] else "Wounded"
             bx = pill(surf, inj_lbl, bx, name_r.centery, BAD, DARK, size=17, anchor="midleft").right + 8
         if "DejaVu" in (c["abilities"]["disorder"] or []):
-            pill(surf, "DÉJÀ VU", bx, name_r.centery, (220, 90, 190), DARK, size=17, anchor="midleft")
+            bx = pill(surf, "DÉJÀ VU", bx, name_r.centery, (220, 90, 190), DARK, size=17, anchor="midleft").right + 8
+        if c.get("coi", 0.0) >= 0.20:
+            pill(surf, f"CoI {c['coi'] * 100:.0f}%", bx, name_r.centery, mix(BAD, CARD, .65), BAD, size=16, anchor="midleft")
 
         lvl = c["level"] if 0 <= c["level"] <= 99 else "?"
-        room = "Adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "Graveyard").replace("_", " ")
-        mut_n = sum(1 for k, v in c["mutations"].items() if v >= 300)
-        parts = [f"{c['class']}", f"Lv {lvl}", f"{c['age']}d", room, f"HP {c['hp']}/{c['max_hp']}"]
+        rm_raw = self.app.pending.room_moves.get(c["key"], c["room"])
+        room = "Adventure" if rm_raw == "(ADVENTURE)" else (rm_raw or "Graveyard").replace("_", " ")
+        mut_n = br.mutation_count(c)
+        parts = [f"{c['class']}", f"Lv {lvl}", f"{c['age']}d", room, f"Sum {br.stat_sum(c)}", f"HP {c['hp']}/{c['max_hp']}"]
         if mut_n:
             parts.append(f"{mut_n} mut")
         if c["retired"]:
@@ -1187,18 +1246,34 @@ class CatsTab(Tab):
             text(surf, s[0] if s != "LUCK" else "L", (bx + 12, r.bottom - 10), 19, FAINT, "black", anchor="midbottom")
 
     def draw(self, surf, area) -> None:
-        x = area.x
+        cy = area.y + 18
+        self.search_rect = ed.draw_search_pill(sys.modules[__name__], surf, area.right - 20, cy, self.query, anchor="midright")
+        self.sort_rect = pill(surf, f"Sort: {self.SORTS[self.s_idx][0]} (Y)", self.search_rect.left - 10, cy,
+                              ACCENT if self.s_idx else CARD_HI, DARK if self.s_idx else TEXT, size=19, anchor="midright")
+        self.sex_rect = pill(surf, self.SEX_FILTERS[self.sex_idx], self.sort_rect.left - 10, cy,
+                             INFO if self.sex_idx else CARD_HI, DARK if self.sex_idx else DIM, size=19, anchor="midright")
+        chips_right = self.sex_rect.left - 16
+
         self.chip_rects = []
-        for i, (name, _, _) in enumerate(self.FILTERS):
+        labels = [f"{name} {len(self._pool(i, apply_sex=False))}" for i, (name, _, _) in enumerate(self.FILTERS)]
+        widths = [F(22, "bold").size(l)[0] + 30 for l in labels]
+        start = 0
+        while sum(widths[start:self.f + 1]) > (chips_right - area.x - 24) and start < self.f:
+            start += 1
+        x = area.x
+        if start:
+            tri(surf, DIM, (x + 8, cy), 8, "left")
+            x += 24
+        for i in range(start, len(self.FILTERS)):
             sel = i == self.f
-            n = len(self._pool(i))
-            r = pill(surf, f"{name}  {n}", x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 25)
-            self.chip_rects.append(r)
-            x = r.right + 11
-        glyph(surf, "DPAD_LR", x + 11, self.chip_rects[0].centery)
-        self.search_rect = ed.draw_search_pill(sys.modules[__name__], surf, area.right - 20, self.chip_rects[0].centery,
-                                               self.query, anchor="midright")
-        la = pygame.Rect(area.x, area.y + 68, area.w - 20, area.h - 68)
+            w_est = F(22, "bold").size(labels[i])[0] + 22
+            if x + w_est > chips_right:
+                break
+            r = pill(surf, labels[i], x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 22)
+            self.chip_rects.append((r, i))
+            x = r.right + 9
+
+        la = pygame.Rect(area.x, area.y + 62, area.w - 20, area.h - 62)
         if not self.list.rows:
             msg = f'No cats matching "{self.query}"' if self.query else "No cats in this filter"
             text(surf, msg, (la.centerx, la.y + 108), 35, FAINT, "bold", anchor="midtop")
@@ -1212,7 +1287,8 @@ class CatsTab(Tab):
             extra = [("X", "Revive")]
         elif cur and (cur["injured"] or cur["wounded"]):
             extra = [("X", "Heal")]
-        return [("A", "Edit cat")] + extra + [("SELECT", "Search"), ("DPAD_LR", "Filter"), ("B", "Clear" if self.query else "Saves")]
+        return [("A", "Edit cat")] + extra + [("Y", "Sort"), ("SELECT", "Search"), ("DPAD_LR", "Filter"),
+                                              ("B", "Clear" if (self.query or self.sex_idx) else "Saves")]
 
 
 class CatEdit(Screen):
@@ -1596,15 +1672,25 @@ class ItemsTab(Tab):
         ("trash", "Trash"),
     ]
 
+    RARITY_RANK = {"common": 1, "uncommon": 2, "rare": 3, "very_rare": 4, "legendary": 5, "quest": 6}
+    SORTS = ("A-Z", "Top Stats", "Rarity", "Set")
+
     def __init__(self, app: "App") -> None:
         super().__init__(app)
         self.items = sorted(gd.items().values(), key=lambda i: (i.get("name") or i["id"]).lower())
         kinds = sorted({i.get("kind") or "other" for i in self.items})
-        self.tabs = ["owned", "all"] + kinds + ["sets", "cursed", "+Shield", "+STR", "+DEX", "+CON", "+INT", "+SPD", "+CHA", "+LUCK"]
+        self.tabs = (
+            ["owned", "all"]
+            + kinds
+            + ["sets", "cursed", "r:common", "r:uncommon", "r:rare", "r:very_rare",
+               "+Shield", "+STR", "+DEX", "+CON", "+INT", "+SPD", "+CHA", "+LUCK"]
+        )
         self.c_idx = 0  # 0=Home Storage, 1=Adventure Backpack, 2=Trash
         self.t = 1      # default to "all" catalog so browsing + adding is instant
+        self.s_idx = 0
         self.query = ""
         self.search_rect: pygame.Rect | None = None
+        self.sort_rect: pygame.Rect | None = None
         self.list = ListView(row_h=82, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
         self.container_rects: list[tuple[pygame.Rect, int]] = []
@@ -1663,11 +1749,18 @@ class ItemsTab(Tab):
                     mode == "all"
                     or (mode == "sets" and bool(it.get("set")))
                     or (mode == "cursed" and bool(it.get("cursed")))
+                    or (mode.startswith("r:") and (it.get("rarity") or "") == mode[2:])
                     or (mode.startswith("+") and (it.get("stats") or {}).get(mode[1:], 0) > 0)
                     or (it.get("kind") or "other") == mode
                 )
                 if ok and self._item_matches(it, q):
                     rows.append(Row(it.get("name") or it["id"], data=("catalog", it["id"], it)))
+        if self.s_idx == 1:
+            rows.sort(key=lambda r: (-sum((r.data[2].get("stats") or {}).values()), r.label.lower()))
+        elif self.s_idx == 2:
+            rows.sort(key=lambda r: (-self.RARITY_RANK.get(r.data[2].get("rarity") or "", 0), r.label.lower()))
+        elif self.s_idx == 3:
+            rows.sort(key=lambda r: (not bool(r.data[2].get("set")), str(r.data[2].get("set") or "zzz"), r.label.lower()))
         return rows
 
     def _rebuild(self) -> None:
@@ -1735,6 +1828,11 @@ class ItemsTab(Tab):
         if self.search_rect and self.search_rect.collidepoint(pos):
             self._open_search()
             return
+        if self.sort_rect and self.sort_rect.collidepoint(pos):
+            self.s_idx = (self.s_idx + 1) % len(self.SORTS)
+            self.list.sel = 0
+            self._rebuild()
+            return
         for r, i in self.container_rects:
             if r.collidepoint(pos):
                 self.c_idx = i
@@ -1755,10 +1853,10 @@ class ItemsTab(Tab):
 
     def render_row(self, surf, r, row: Row, selected: bool) -> None:
         kind, obj, it = row.data
-        rc = RARITY_COL.get(it.get("rarity", ""), DIM)
-        pygame.draw.circle(surf, rc, (r.x + 36, r.centery), 11)
-        text(surf, row.label, (r.x + 68, r.centery), 31, ACCENT if kind == "queued" else TEXT, "bold",
-             anchor="midleft", maxw=r.w - 360)
+        badge = pygame.Rect(r.x + 14, r.centery - 29, 58, 58)
+        ed.draw_item_badge(sys.modules[__name__], surf, it.get("id"), badge, it.get("rarity", ""))
+        text(surf, row.label, (r.x + 86, r.centery), 30, ACCENT if kind == "queued" else TEXT, "bold",
+             anchor="midleft", maxw=r.w - 376)
         st = gd.format_stats(it.get("stats"))
         meta = st if st else f"{(it.get('rarity') or '').replace('_', ' ')} · {it.get('kind') or 'other'}"
         text(surf, meta, (r.right - 108, r.centery), 21, GOOD if st else FAINT, "bold" if st else "semi",
@@ -1773,7 +1871,7 @@ class ItemsTab(Tab):
             pill(surf, f"×{obj['field_a']}", r.right - 22, r.centery, CARD_HI, DIM, size=18, anchor="midright")
 
     def draw(self, surf, area) -> None:
-        # Row 1: Home Storage / Adventure Backpack / Trash container pills
+        # Row 1: Home Storage / Adventure Backpack / Trash container pills + Sort pill
         self.container_rects = []
         cx = area.x
         for i, (ckey, clbl) in enumerate(self.CONTAINERS):
@@ -1787,6 +1885,8 @@ class ItemsTab(Tab):
             self.container_rects.append((r, i))
             cx = r.right + 12
         glyph(surf, "Y", cx + 6, self.container_rects[0][0].centery)
+        self.sort_rect = pill(surf, f"Sort: {self.SORTS[self.s_idx]}", area.right - 620, self.container_rects[0][0].centery,
+                              ACCENT if self.s_idx else CARD_HI, DARK if self.s_idx else TEXT, size=19, anchor="midright")
 
         # Row 2: Mode / category chips + Search pill
         cy = area.y + 52
@@ -1795,7 +1895,15 @@ class ItemsTab(Tab):
         chips_right = self.search_rect.left - 14
         self.chip_rects = []
         labels = [
-            "Owned" if t == "owned" else ("Add: All" if t == "all" else ("Set Items" if t == "sets" else (t if t.startswith("+") else t.replace("_", " ").title())))
+            "Owned" if t == "owned" else (
+                "Add: All" if t == "all" else (
+                    "Set Items" if t == "sets" else (
+                        t[2:].replace("_", " ").title() if t.startswith("r:") else (
+                            t if t.startswith("+") else t.replace("_", " ").title()
+                        )
+                    )
+                )
+            )
             for t in self.tabs
         ]
         widths = [F(21, "bold").size(l)[0] + 30 for l in labels]

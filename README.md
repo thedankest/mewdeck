@@ -6,7 +6,7 @@
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
-[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.2)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
+[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.3)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
 [![Platform](https://img.shields.io/badge/Linux-Bazzite%20%7C%20SteamOS-70acff?style=for-the-badge&logo=linux&logoColor=14101a)](#one-click-install-on-bazzite--steamos)
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
@@ -27,11 +27,21 @@
   <tr>
     <td align="center" width="50%">
       <img src="docs/screenshots/cats.png" alt="Adventure Party & Cats" /><br />
-      <sub><b>Home & Adventure Cats</b> — Injuries, Déjà Vu, HP, mutations & Graveyard revive</sub>
+      <sub><b>Home & Adventure Cats</b> — Filters, sorting, CoI% inbreeding badges & Graveyard revive</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/breeding.png" alt="Cat Organizer & Breeding Helper" /><br />
+      <sub><b>Cat Organizer & Breeding Helper</b> — Room optimizer, ENS pairs, CoI% & 1-press apply</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/items.png" alt="Items, Wiki Icons & Armor Set Bonuses" /><br />
+      <sub><b>Items & Wiki Icons (989 Sprites)</b> — Home/Adventure transfer, filters, sorting & Set Bonuses</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/cat-edit.png" alt="Cat Editor" /><br />
-      <sub><b>Cat Editor</b> — Stats, class, abilities, passives, disorders, mutations & gear</sub>
+      <sub><b>Cat Editor</b> — Rename, rooms, base + bonus stats, class, abilities, mutations & gear</sub>
     </td>
   </tr>
   <tr>
@@ -44,16 +54,6 @@
       <sub><b>Mutations & Coat Texture</b> — All 14 body parts, birth defects & L↔R mirror</sub>
     </td>
   </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/items.png" alt="Items & Armor Set Bonuses" /><br />
-      <sub><b>Items & Armor Set Bonuses</b> — Home Storage, Adventure Backpack & Trash</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/screenshots/furniture.png" alt="Furniture & Room Totals" /><br />
-      <sub><b>Furniture & Rooms</b> — Live Comfort / Stimulation / Appeal totals + 633 items</sub>
-    </td>
-  </tr>
 </table>
 
 ---
@@ -61,7 +61,7 @@
 ## One-Click Install on Bazzite / SteamOS
 
 > [!TIP]
-> **No ZIP extraction, no `git`, no manual Steam setup.** Download one ~300 KB file and let the native KDE / GNOME wizard do everything.
+> **No ZIP extraction, no `git`, no manual Steam setup.** Download one self-contained file and let the native KDE / GNOME wizard do everything.
 
 1. Switch to **Desktop Mode** (*Steam → Power → Switch to Desktop*).
 2. Download **[`MewDeck-Installer.run`](https://github.com/thedankest/mewdeck/releases/latest)** from the latest release.
@@ -98,9 +98,10 @@ cd ~/mewdeck && ./uninstall.sh
 | **Steven / Save-Scum Reset** | One press sets `savescumlocation = 0`, caps or wipes strike history, and strips **Déjà Vu** from adventure party cats. Includes **Close game → reset → relaunch** and an optional **Auto-block Steven** SQLite trigger. |
 | **Heal All & Repair All Gear** | One press on Home heals full HP + cures injuries/scars across all active cats (`--heal-all`), and another refills durability/uses and clears worn flags on all equipped & stored gear. |
 | **Home & Adventure Resources** | Separate editors for **Home** (*Gold, Food, Blank Collars, Storage Upgrades, Min Strays*), **Adventure** (*Adventure Coins, Adventure Food, Furniture Boxes*), *Current Day*, *Completion %*, plus a searchable **Advanced Properties & Unlocks** editor for all 163+ integer save flags. |
-| **Cats (House, Adventure & Graveyard)** | Dedicated filters for **House**, **Adventure Party**, **All Active**, **Retired**, and **Graveyard** (1-press **Revive » Attic**). **Rename cats** (gamepad/touch keyboard), **move cats between House Rooms**, edit Base Stats (1–7) & **Level-Up Bonuses**, Class (14 classes, auto-syncs default basic attack), Level, Age, Sex, Retired, and Equipped Gear with **live Armor Set Synergy**. |
+| **Cat Organizer & Breeding Helper** | Built-in **Room Optimizer** (Simulated Annealing using live furniture Stimulation/Health, Eternal Youth buffs, Lover exclusivity & Hater conflict avoidance) with **1-press Apply Plan to Save**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
+| **Cats (House, Adventure & Graveyard)** | Dedicated filters (**House**, **Adventure**, **All Active**, **Injured**, **Mutated**, **Retired**, **Graveyard** + **Sex** filter), **9 sort modes** (`Y`: Room, Stats, 7s, Breed Score, Level, Age, Inbred, Class), CoI% badges, **Rename cats**, **move House Rooms**, Base Stats (1–7), **Level-Up Bonuses**, Class, and Equipped Gear with **wiki icons & live Armor Set Synergy**. |
 | **Unobfuscated Abilities & Mutations** | Full English names, mana costs, stat bonuses, and descriptions for **1,912 Active Abilities**, **386 Passives (with Tier 1 / Tier 2 `+` toggle)**, **125 Disorders**, and **766 Mutations + Coat Textures** (including decoded stat mutations & 1-press **Clear all birth defects**) across all 14 body parts with L↔R mirroring. |
-| **Items & 101 Armor Set Bonuses** | Browse, add, remove, and **1-press move between Home Storage & Adventure Backpack** — all **1,021 items** include descriptions, stat bonuses, durability, cursed tags, **Armor Set Bonuses**, and filter chips (`Set Items`, `Cursed`, `+Shield`, `+STR`..`+LUCK`). |
+| **Items, 989 Wiki Icons & Set Bonuses** | Official hand-drawn item icons from `mewgenics.wiki.gg` packed offline, **1-press move Home Storage ↔ Adventure Backpack**, sorting (`A-Z`, `Top Stats`, `Rarity`, `Set`), **101 Armor Set Bonuses**, and filter chips (Slot, Rarity, `Set Items`, `Cursed`, `+Shield`, `+STR`..`+LUCK`). |
 | **Furniture & Rooms** | Inspect Unplaced Storage and every placed room with live **Comfort / Stimulation / Health / Appeal / Evolution** totals, plus add/remove from **633 furniture items**. |
 | **Zero-Risk Safety & Integrity Check** | Detects if Mewgenics is running (blocks writes so the game can't overwrite edits), keeps an untouchable **pristine** first backup plus 40 rolling backups, includes an on-demand **Verify Save Integrity** tool, and re-parses every edited field before atomically replacing the `.sav`. |
 
@@ -155,6 +156,8 @@ MEWDECK_TEST_SAVE=/path/to/steamcampaign01.sav python3 tests/test_savefile.py
 - **Item descriptions, set bonuses, mutation/furniture/injury databases & binary format reference:** [michael-trinity/mewgenics-savegame-editor](https://github.com/michael-trinity/mewgenics-savegame-editor) (MIT)
 - **Steven anti-save-scum reset:** [TaliesinYang/mewgenics-bye-bye-steven](https://github.com/TaliesinYang/mewgenics-bye-bye-steven)
 - **Proton save paths:** [Yggdraszil/mewgenics_patcher](https://github.com/Yggdraszil/mewgenics_patcher)
+- **Breeding simulation, pedigree CoI & room optimizer reference:** [PurpleMyst/mewgenics_breeding_helper](https://github.com/PurpleMyst/mewgenics_breeding_helper) (MIT) & [frankieg33/MewgenicsBreedingManager](https://github.com/frankieg33/MewgenicsBreedingManager)
+- **Item icons:** [mewgenics.wiki.gg](https://mewgenics.wiki.gg/) (packed offline via `scripts/fetch_item_icons.py`)
 - **Typography:** [Nunito](https://github.com/googlefonts/nunito) (SIL OFL 1.1)
 
 Licensed under **AGPL-3.0**. Personal, non-commercial tool.

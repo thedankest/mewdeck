@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 import pygame
@@ -16,6 +17,71 @@ import pygame
 from . import catblob as cb
 from . import gamedata as gd
 from . import savefile as sf
+
+
+# --------------------------------------------------------------------------- lazy wiki item icon atlas
+
+_ATLAS_LOADED = False
+_ATLAS_SURF: pygame.Surface | None = None
+_ATLAS_META: dict[str, Any] = {}
+_ICON_CACHE: dict[tuple[str, int], pygame.Surface | None] = {}
+
+
+def _ensure_atlas() -> None:
+    global _ATLAS_LOADED, _ATLAS_SURF, _ATLAS_META
+    if _ATLAS_LOADED:
+        return
+    _ATLAS_LOADED = True
+    png = gd.DATA_DIR / "items/item_icons.png"
+    meta = gd.DATA_DIR / "items/item_icons.json"
+    if not (png.is_file() and meta.is_file()):
+        return
+    try:
+        surf = pygame.image.load(str(png))
+        if pygame.display.get_surface() is not None:
+            surf = surf.convert_alpha()
+        _ATLAS_SURF = surf
+        _ATLAS_META = json.loads(meta.read_text(encoding="utf-8"))
+    except Exception:
+        _ATLAS_SURF = None
+        _ATLAS_META = {}
+
+
+def get_item_icon(item_id: str | None, size: int = 48) -> pygame.Surface | None:
+    """Return a cached pygame Surface for a wiki item icon, or None if unavailable."""
+    if not item_id:
+        return None
+    key = (item_id, size)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    _ensure_atlas()
+    if _ATLAS_SURF is None:
+        _ICON_CACHE[key] = None
+        return None
+    idx = (_ATLAS_META.get("icons") or {}).get(item_id)
+    if idx is None:
+        _ICON_CACHE[key] = None
+        return None
+    tile = int(_ATLAS_META.get("tile", 48))
+    cols = int(_ATLAS_META.get("cols", 32))
+    cx = (idx % cols) * tile
+    cy = (idx // cols) * tile
+    sub = _ATLAS_SURF.subsurface((cx, cy, tile, tile))
+    out = sub if size == tile else pygame.transform.smoothscale(sub, (size, size))
+    _ICON_CACHE[key] = out
+    return out
+
+
+def draw_item_badge(ui, surf: pygame.Surface, item_id: str | None, rect: pygame.Rect, rarity: str = "") -> None:
+    """Draw a rounded icon badge with the wiki item sprite (or rarity fallback dot)."""
+    rc = ui.RARITY_COL.get(rarity or "", ui.LINE)
+    ui.rrect(surf, rect, ui.DARK, min(14, rect.w // 4))
+    pygame.draw.rect(surf, ui.mix(rc, ui.CARD, .45), rect, width=2, border_radius=min(14, rect.w // 4))
+    ico = get_item_icon(item_id, max(16, rect.w - 10))
+    if ico is not None:
+        surf.blit(ico, ico.get_rect(center=rect.center))
+    else:
+        pygame.draw.circle(surf, rc, rect.center, max(6, rect.w // 5))
 
 
 def wrap_lines(font: pygame.font.Font, s: str, maxw: int, max_lines: int = 12) -> list[str]:
@@ -57,7 +123,9 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         return y + 80
 
     rc = ui.RARITY_COL.get(item.get("rarity", ""), ui.DIM)
-    ui.text(surf, item.get("name") or item["id"], (x, y), 32, ui.TEXT, "black", maxw=w)
+    ico_box = pygame.Rect(box.right - 28 - 90, y, 90, 90)
+    draw_item_badge(ui, surf, item.get("id"), ico_box, item.get("rarity", ""))
+    ui.text(surf, item.get("name") or item["id"], (x, y), 32, ui.TEXT, "black", maxw=w - 106)
     y += 44
 
     # Badges row: rarity, kind, durability, cursed, consumable
@@ -74,13 +142,14 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
     if item.get("durability"):
         badges.append((f"Uses {item['durability']}", ui.CARD_HI, ui.DIM))
     for lab, bg, fg in badges:
+        right_lim = ico_box.left - 12 if y < ico_box.bottom + 4 else box.right - 24
         r = ui.pill(surf, lab, bx, y, bg, fg, size=18)
-        if r.right > box.right - 24:
+        if r.right > right_lim:
             bx = x
             y += 34
             r = ui.pill(surf, lab, bx, y, bg, fg, size=18)
         bx = r.right + 8
-    y += 42
+    y = max(y + 42, ico_box.bottom + 14)
 
     # Stat bonuses
     stats = item.get("stats") or {}
@@ -459,10 +528,16 @@ class CatalogPicker:
             ui.text(surf, row.label, (r.x + 28, r.centery), 30, ui.BAD if selected else ui.DIM, "bold", anchor="midleft")
             return
         is_cur = (e.get("id") == self.current_id or e.get("raw_id") == self.current_id)
-        dot_col = ui.ACCENT if is_cur else (ui.BAD if e.get("tag") == "birth_defect" else ui.GOOD if e.get("stats") else ui.LINE)
-        pygame.draw.circle(surf, dot_col, (r.x + 34, r.centery), 10)
-        ui.text(surf, e["name"], (r.x + 62, r.centery), 32, ui.ACCENT if is_cur else ui.TEXT, "bold",
-                anchor="midleft", maxw=r.w - 310)
+        if e.get("kind") and get_item_icon(e.get("id"), 44) is not None:
+            badge = pygame.Rect(r.x + 16, r.centery - 27, 54, 54)
+            draw_item_badge(ui, surf, e.get("id"), badge, e.get("rarity", ""))
+            tx = r.x + 86
+        else:
+            dot_col = ui.ACCENT if is_cur else (ui.BAD if e.get("tag") == "birth_defect" else ui.GOOD if e.get("stats") else ui.LINE)
+            pygame.draw.circle(surf, dot_col, (r.x + 34, r.centery), 10)
+            tx = r.x + 62
+        ui.text(surf, e["name"], (tx, r.centery), 32, ui.ACCENT if is_cur else ui.TEXT, "bold",
+                anchor="midleft", maxw=r.w - 330)
         if self.row_meta_fn:
             meta, mcol = self.row_meta_fn(e)
             if meta:
@@ -1095,9 +1170,15 @@ class EquipScreen:
     def _render_row(self, surf, r, row, selected: bool) -> None:
         ui = self.ui
         sk, iid, info = row.data
-        ui.text(surf, row.label.upper(), (r.x + 28, r.y + 16), 19, ui.FAINT, "black")
-        ui.text(surf, info["name"] if info else "Empty", (r.x + 28, r.bottom - 18), 34,
-                ui.TEXT if info else ui.FAINT, "black", anchor="bottomleft", maxw=r.w - 220)
+        badge = pygame.Rect(r.x + 20, r.centery - 34, 68, 68)
+        if info:
+            draw_item_badge(ui, surf, iid, badge, info.get("rarity", ""))
+        else:
+            ui.rrect(surf, badge, ui.DARK, 14)
+            pygame.draw.rect(surf, ui.LINE, badge, width=2, border_radius=14)
+        ui.text(surf, row.label.upper(), (r.x + 106, r.y + 16), 19, ui.FAINT, "black")
+        ui.text(surf, info["name"] if info else "Empty", (r.x + 106, r.bottom - 18), 34,
+                ui.TEXT if info else ui.FAINT, "black", anchor="bottomleft", maxw=r.w - 310)
         if info:
             rc = ui.RARITY_COL.get(info.get("rarity", ""), ui.DIM)
             st = gd.format_stats(info.get("stats"))
