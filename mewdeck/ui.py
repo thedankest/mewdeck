@@ -21,23 +21,11 @@ import pygame
 
 from . import savefile as sf
 
-W, H = 1280, 800  # logical canvas; App widens/heightens it to the panel's aspect ratio
-HEADER_H, TABS_H, FOOTER_H = 84, 56, 60
-CONTENT_TOP = HEADER_H + TABS_H + 16
-CONTENT_BOTTOM = H - FOOTER_H - 14
-
-
-def configure_canvas(dw: int, dh: int) -> None:
-    """Match the logical canvas to the display aspect so nothing is letterboxed or stretched.
-    Height stays 800 for 16:10 and wider (16:9 -> 1422x800); narrower panels get a taller canvas."""
-    global W, H, CONTENT_BOTTOM
-    a = dw / dh if dw > 0 and dh > 0 else 1.6
-    if a >= 1.6:
-        W, H = min(1920, round(800 * a)), 800
-    else:
-        W, H = 1280, min(1280, round(1280 / a))
-    CONTENT_BOTTOM = H - FOOTER_H - 14
-PAD = 40
+W, H = 1920, 1080  # native 1080p (16:9, ROG Ally native panel)
+HEADER_H, TABS_H, FOOTER_H = 114, 76, 80
+CONTENT_TOP = HEADER_H + TABS_H + 22
+CONTENT_BOTTOM = H - FOOTER_H - 20
+PAD = 54
 
 # palette
 BG_TOP, BG_BOT = (34, 24, 44), (15, 12, 21)
@@ -364,41 +352,41 @@ def icon_status(surf, cx, cy, r, ok: bool) -> None:
 def glyph(surf, name: str, x: int, cy: int) -> int:
     """Draw a controller glyph with its left edge at x, vertically centred at cy. Returns right edge."""
     if name in BTN_COL:
-        r = 15
-        pygame.draw.circle(surf, mix(BTN_COL[name], DARK, .45), (x + r, cy + 2), r)
+        r = 20
+        pygame.draw.circle(surf, mix(BTN_COL[name], DARK, .45), (x + r, cy + 3), r)
         pygame.draw.circle(surf, BTN_COL[name], (x + r, cy), r)
-        img = F(19, "black").render(name, True, DARK)
+        img = F(26, "black").render(name, True, DARK)
         surf.blit(img, img.get_rect(center=(x + r, cy)))
         return x + 2 * r
     if name in ("LB", "RB", "LBRB"):
         right = x
         for part in (["LB", "RB"] if name == "LBRB" else [name]):
-            rr = pygame.Rect(right, cy - 13, 42, 26)
-            rrect(surf, rr, (128, 116, 150), 9)
-            img = F(16, "black").render(part, True, DARK)
+            rr = pygame.Rect(right, cy - 18, 56, 36)
+            rrect(surf, rr, (128, 116, 150), 12)
+            img = F(22, "black").render(part, True, DARK)
             surf.blit(img, img.get_rect(center=rr.center))
-            right = rr.right + 4
-        return right - 4
+            right = rr.right + 6
+        return right - 6
     if name == "START":
-        rr = pygame.Rect(x, cy - 13, 40, 26)
-        rrect(surf, rr, (128, 116, 150), 13)
-        for dy in (-6, 0, 6):
-            pygame.draw.line(surf, DARK, (rr.centerx - 9, cy + dy), (rr.centerx + 9, cy + dy), 3)
+        rr = pygame.Rect(x, cy - 18, 54, 36)
+        rrect(surf, rr, (128, 116, 150), 18)
+        for dy in (-8, 0, 8):
+            pygame.draw.line(surf, DARK, (rr.centerx - 12, cy + dy), (rr.centerx + 12, cy + dy), 4)
         return rr.right
     if name.startswith("DPAD"):
         c = (128, 116, 150)
         hi = TEXT
-        cx = x + 15
-        pygame.draw.rect(surf, c, (cx - 5, cy - 15, 10, 30), border_radius=3)
-        pygame.draw.rect(surf, c, (cx - 15, cy - 5, 30, 10), border_radius=3)
+        cx = x + 20
+        pygame.draw.rect(surf, c, (cx - 7, cy - 20, 14, 40), border_radius=4)
+        pygame.draw.rect(surf, c, (cx - 20, cy - 7, 40, 14), border_radius=4)
         if name == "DPAD_LR":
-            pygame.draw.rect(surf, hi, (cx - 15, cy - 5, 8, 10), border_radius=3)
-            pygame.draw.rect(surf, hi, (cx + 7, cy - 5, 8, 10), border_radius=3)
+            pygame.draw.rect(surf, hi, (cx - 20, cy - 7, 11, 14), border_radius=4)
+            pygame.draw.rect(surf, hi, (cx + 9, cy - 7, 11, 14), border_radius=4)
         elif name == "DPAD_UD":
-            pygame.draw.rect(surf, hi, (cx - 5, cy - 15, 10, 8), border_radius=3)
-            pygame.draw.rect(surf, hi, (cx - 5, cy + 7, 10, 8), border_radius=3)
-        return x + 30
-    return text(surf, name, (x, cy), 20, DIM, "bold", anchor="midleft").right
+            pygame.draw.rect(surf, hi, (cx - 7, cy - 20, 14, 11), border_radius=4)
+            pygame.draw.rect(surf, hi, (cx - 7, cy + 9, 14, 11), border_radius=4)
+        return x + 40
+    return text(surf, name, (x, cy), 27, DIM, "bold", anchor="midleft").right
 
 
 class Anim:
@@ -425,10 +413,10 @@ class RectAnim:
         return pygame.Rect(*[round(v) for v in self.r])
 
 
-def focus_ring(surf, rect: pygame.Rect, radius=16) -> None:
-    glow = rect.inflate(10, 10)
-    pygame.draw.rect(surf, mix(ACCENT, BG_TOP, .7), glow, width=4, border_radius=radius + 5)
-    pygame.draw.rect(surf, ACCENT, rect.inflate(2, 2), width=3, border_radius=radius + 1)
+def focus_ring(surf, rect: pygame.Rect, radius=22) -> None:
+    glow = rect.inflate(14, 14)
+    pygame.draw.rect(surf, mix(ACCENT, BG_TOP, .7), glow, width=5, border_radius=radius + 7)
+    pygame.draw.rect(surf, ACCENT, rect.inflate(3, 3), width=4, border_radius=radius + 2)
 
 
 # =========================================================================== list widget
@@ -444,7 +432,7 @@ class Row:
 
 
 class ListView:
-    def __init__(self, row_h: int = 72, gap: int = 8) -> None:
+    def __init__(self, row_h: int = 96, gap: int = 11) -> None:
         self.rows: list[Row] = []
         self.sel = 0
         self.row_h, self.gap = row_h, gap
@@ -479,33 +467,33 @@ class ListView:
         off = self.scroll.to(self._top * step)
         hl_y = self.hl.to(self.sel * step)
         clip = surf.get_clip()
-        surf.set_clip(area.inflate(16, 12))
+        surf.set_clip(area.inflate(22, 16))
         self.rects = []
         first = max(0, int(off // step) - 1)
         for i in range(first, min(len(self.rows), first + visible + 3)):
             r = pygame.Rect(area.x, area.y + i * step - off, area.w, self.row_h)
             if r.bottom < area.y - step or r.top > area.bottom + step:
                 continue
-            rrect(surf, r, CARD, 14)
+            rrect(surf, r, CARD, 18)
         hr = pygame.Rect(area.x, area.y + hl_y - off, area.w, self.row_h)
         if self.rows:
-            rrect(surf, hr, CARD_HI, 14)
+            rrect(surf, hr, CARD_HI, 18)
         for i in range(first, min(len(self.rows), first + visible + 3)):
             r = pygame.Rect(area.x, area.y + i * step - off, area.w, self.row_h)
             if r.bottom < area.y - step or r.top > area.bottom + step:
                 continue
-            if area.y - 4 <= r.y and r.bottom <= area.bottom + 4:
+            if area.y - 6 <= r.y and r.bottom <= area.bottom + 6:
                 self.rects.append((r, i))
             render(surf, r, self.rows[i], i == self.sel)
         if self.rows:
-            focus_ring(surf, hr, 14)
+            focus_ring(surf, hr, 18)
         surf.set_clip(clip)
         if len(self.rows) > visible:
-            track = pygame.Rect(area.right + 10, area.y, 5, area.h)
-            rrect(surf, track, CARD, 3)
-            bar_h = max(36, area.h * visible // len(self.rows))
+            track = pygame.Rect(area.right + 14, area.y, 7, area.h)
+            rrect(surf, track, CARD, 4)
+            bar_h = max(48, area.h * visible // len(self.rows))
             y = area.y + (area.h - bar_h) * off / max(1, (len(self.rows) - visible) * step)
-            rrect(surf, (track.x, y, 5, bar_h), LINE, 3)
+            rrect(surf, (track.x, y, 7, bar_h), LINE, 4)
 
     def hit(self, pos) -> int | None:
         for r, i in self.rects:
@@ -517,13 +505,13 @@ class ListView:
 def default_row(surf, r: pygame.Rect, row: Row, selected: bool) -> None:
     col = row.color if row.enabled else FAINT
     if row.sub:
-        text(surf, row.label, (r.x + 22, r.y + 10), 28, col, "bold", maxw=r.w * 2 // 3)
-        text(surf, row.sub, (r.x + 22, r.bottom - 10), 20, DIM if row.enabled else FAINT, anchor="bottomleft",
-             maxw=r.w - 60)
+        text(surf, row.label, (r.x + 30, r.y + 14), 38, col, "bold", maxw=r.w * 2 // 3)
+        text(surf, row.sub, (r.x + 30, r.bottom - 14), 27, DIM if row.enabled else FAINT, anchor="bottomleft",
+             maxw=r.w - 80)
     else:
-        text(surf, row.label, (r.x + 22, r.centery), 28, col, "bold", anchor="midleft", maxw=r.w * 2 // 3)
+        text(surf, row.label, (r.x + 30, r.centery), 38, col, "bold", anchor="midleft", maxw=r.w * 2 // 3)
     if row.value:
-        text(surf, row.value, (r.right - 22, r.centery), 28, ACCENT if selected else TEXT, "bold",
+        text(surf, row.value, (r.right - 30, r.centery), 38, ACCENT if selected else TEXT, "bold",
              anchor="midright", maxw=r.w // 3)
 
 
@@ -555,7 +543,7 @@ class SavePicker(Screen):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.list = ListView(row_h=112, gap=12)
+        self.list = ListView(row_h=150, gap=16)
 
     def on_enter(self) -> None:
         self.refresh()
@@ -591,44 +579,44 @@ class SavePicker(Screen):
     @staticmethod
     def render_row(surf, r, row: Row, selected: bool) -> None:
         p, snap = row.data
-        icon_cat(surf, r.x + 56, r.centery + 4, 30, ACCENT if selected else LINE, CARD_HI if selected else CARD)
-        x = r.x + 112
-        text(surf, row.label, (x, r.y + 16), 34, TEXT, "black")
+        icon_cat(surf, r.x + 76, r.centery + 5, 40, ACCENT if selected else LINE, CARD_HI if selected else CARD)
+        x = r.x + 150
+        text(surf, row.label, (x, r.y + 22), 46, TEXT, "black")
         owner = sf.save_label(p).split("(")[-1].rstrip(")")
         when = time.strftime("%b %d, %H:%M", time.localtime(p.stat().st_mtime))
-        text(surf, f"Steam {owner}  ·  saved {when}", (x, r.y + 60), 20, DIM)
+        text(surf, f"Steam {owner}  ·  saved {when}", (x, r.y + 82), 27, DIM)
         if snap is None:
-            text(surf, row.sub, (x, r.bottom - 14), 20, BAD, anchor="bottomleft")
+            text(surf, row.sub, (x, r.bottom - 18), 27, BAD, anchor="bottomleft")
             return
         b = snap.parsed["basic"]
         stats = [("DAY", b["current_day"]), ("GOLD", b["house_gold"]), ("CATS", snap.parsed["total_cats"])]
-        sx = r.right - 300
+        sx = r.right - 405
         for label, val in stats:
-            text(surf, str(val), (sx, r.y + 22), 30, TEXT, "black", anchor="midtop")
-            text(surf, label, (sx, r.y + 64), 16, FAINT, "bold", anchor="midtop")
-            sx += 92
+            text(surf, str(val), (sx, r.y + 30), 40, TEXT, "black", anchor="midtop")
+            text(surf, label, (sx, r.y + 86), 22, FAINT, "bold", anchor="midtop")
+            sx += 124
         st = snap.steven
-        pill(surf, "STEVEN ACTIVE" if st.active else "STEVEN CLEAR", r.right - 352, r.centery, BAD if st.active else GOOD,
-             anchor="midright", size=18)
+        pill(surf, "STEVEN ACTIVE" if st.active else "STEVEN CLEAR", r.right - 475, r.centery, BAD if st.active else GOOD,
+             anchor="midright", size=24)
 
     def draw(self, surf) -> None:
-        text(surf, "Pick a campaign", (PAD, HEADER_H + 22), 40, TEXT, "black")
-        text(surf, "Read straight from your Proton prefix. Nothing is copied.", (PAD, HEADER_H + 74), 22, DIM)
-        area = pygame.Rect(PAD, HEADER_H + 120, W - 2 * PAD, CONTENT_BOTTOM - HEADER_H - 120)
+        text(surf, "Pick a campaign", (PAD, HEADER_H + 30), 54, TEXT, "black")
+        text(surf, "Read straight from your Proton prefix. Nothing is copied.", (PAD, HEADER_H + 100), 30, DIM)
+        area = pygame.Rect(PAD, HEADER_H + 162, W - 2 * PAD, CONTENT_BOTTOM - HEADER_H - 162)
         if self.list.rows:
             self.list.draw(surf, area, self.render_row)
             return
-        card = pygame.Rect(PAD, area.y, area.w, 380)
-        rrect(surf, card, CARD, 18)
-        icon_cat(surf, card.x + 90, card.y + 100, 50, LINE, CARD)
-        text(surf, "No Mewgenics saves found", (card.x + 170, card.y + 54), 34, TEXT, "black")
+        card = pygame.Rect(PAD, area.y, area.w, 510)
+        rrect(surf, card, CARD, 24)
+        icon_cat(surf, card.x + 120, card.y + 135, 68, LINE, CARD)
+        text(surf, "No Mewgenics saves found", (card.x + 230, card.y + 72), 46, TEXT, "black")
         text(surf, "Start Mewgenics once so Proton creates its prefix, then press Y to rescan.",
-             (card.x + 170, card.y + 104), 22, DIM)
-        y = card.y + 170
-        text(surf, "SEARCHED", (card.x + 40, y), 16, FAINT, "bold")
+             (card.x + 230, card.y + 140), 30, DIM)
+        y = card.y + 230
+        text(surf, "SEARCHED", (card.x + 54, y), 22, FAINT, "bold")
         for root in sf.candidate_save_roots()[:6]:
-            y += 30
-            text(surf, str(root), (card.x + 40, y), 18, DIM, maxw=card.w - 80)
+            y += 40
+            text(surf, str(root), (card.x + 54, y), 24, DIM, maxw=card.w - 108)
 
     def hint_items(self):
         return [("A", "Open"), ("Y", "Rescan"), ("B", "Quit")]
@@ -705,7 +693,7 @@ class Hub(Screen):
         x = PAD
         self.tab_rects = []
         glyph(surf, "LB", x, y + TABS_H // 2)
-        x += 58
+        x += 78
         target = None
         for i, t in enumerate(self.tabs):
             label = t.name
@@ -715,21 +703,21 @@ class Hub(Screen):
             if isinstance(t, ItemsTab) and self.app.pending.add_items:
                 badge = f"+{len(self.app.pending.add_items)}"
             sel = i == self.i
-            img = F(24, "black" if sel else "bold").render(label, True, TEXT if sel else DIM)
-            r = pygame.Rect(x, y + 8, img.get_width() + 36 + (34 if badge else 0), TABS_H - 16)
+            img = F(32, "black" if sel else "bold").render(label, True, TEXT if sel else DIM)
+            r = pygame.Rect(x, y + 10, img.get_width() + 48 + (46 if badge else 0), TABS_H - 20)
             self.tab_rects.append(r)
             if sel:
                 target = r
-            surf.blit(img, img.get_rect(midleft=(r.x + 18, r.centery)))
+            surf.blit(img, img.get_rect(midleft=(r.x + 24, r.centery)))
             if badge:
-                pill(surf, badge, r.right - 14, r.centery, ACCENT if sel else LINE, DARK if sel else TEXT, 15,
+                pill(surf, badge, r.right - 18, r.centery, ACCENT if sel else LINE, DARK if sel else TEXT, 20,
                      anchor="midright")
-            x = r.right + 6
-        glyph(surf, "RB", x + 6, y + TABS_H // 2)
+            x = r.right + 8
+        glyph(surf, "RB", x + 8, y + TABS_H // 2)
         if target:
             u = self.ul.to(target, 0.35)
-            rrect(surf, (u.x + 12, u.bottom - 2, u.w - 24, 4), ACCENT, 2)
-        pygame.draw.line(surf, CARD, (0, y + TABS_H), (W, y + TABS_H), 2)
+            rrect(surf, (u.x + 16, u.bottom - 3, u.w - 32, 5), ACCENT, 3)
+        pygame.draw.line(surf, CARD, (0, y + TABS_H), (W, y + TABS_H), 3)
         area = pygame.Rect(PAD, CONTENT_TOP, W - 2 * PAD, CONTENT_BOTTOM - CONTENT_TOP)
         self.tab.draw(surf, area)
 
@@ -821,16 +809,16 @@ class HomeTab(Tab):
         self.rects, self.arrow_rects = {}, {}
 
         # ---- Steven hero card
-        hero = pygame.Rect(area.x, area.y, 760, area.h)
-        rrect(surf, hero, CARD, 20)
-        band = pygame.Rect(hero.x, hero.y, hero.w, 150)
+        hero = pygame.Rect(area.x, area.y, 1026, area.h)
+        rrect(surf, hero, CARD, 26)
+        band = pygame.Rect(hero.x, hero.y, hero.w, 202)
         tint = pygame.Surface(band.size, pygame.SRCALPHA)
         tint.fill((*(BAD if st.active else GOOD), 28))
         surf.blit(tint, band.topleft)
-        text(surf, "SAVE-SCUM WATCH", (hero.x + 32, hero.y + 24), 16, FAINT, "black")
-        icon_status(surf, hero.x + 70, hero.y + 92, 34, not st.active)
-        text(surf, f"Penalty armed ({st.where})" if st.active else "All clear", (hero.x + 124, hero.y + 52), 38,
-             BAD if st.active else GOOD, "black", maxw=hero.w - 300)
+        text(surf, "SAVE-SCUM WATCH", (hero.x + 44, hero.y + 32), 22, FAINT, "black")
+        icon_status(surf, hero.x + 94, hero.y + 124, 46, not st.active)
+        text(surf, f"Penalty armed ({st.where})" if st.active else "All clear", (hero.x + 168, hero.y + 70), 50,
+             BAD if st.active else GOOD, "black", maxw=hero.w - 400)
         sub = [f"{st.strikes} strike{'s' if st.strikes != 1 else ''} on record"]
         if st.guarded:
             sub.append("auto-block on")
@@ -838,70 +826,70 @@ class HomeTab(Tab):
             sub.append("Steven met")
         if st.on_adventure:
             sub.append("on an adventure")
-        text(surf, "  ·  ".join(sub), (hero.x + 126, hero.y + 104), 20, DIM)
-        pips(surf, hero.right - 32 - max(5, st.strikes) * 23 + 5, hero.y + 34, st.strikes, max(5, st.strikes), BAD,
-             18, 18, 5, mix(LINE, CARD, .4))
+        text(surf, "  ·  ".join(sub), (hero.x + 170, hero.y + 140), 27, DIM)
+        pips(surf, hero.right - 44 - max(5, st.strikes) * 31 + 7, hero.y + 46, st.strikes, max(5, st.strikes), BAD,
+             24, 24, 7, mix(LINE, CARD, .4))
 
         btns = [("reset", "Reset penalty", "savescumlocation = 0, keep 1 strike", True),
                 ("wipe", "Reset + wipe strikes", "Delete the whole strike history", False),
                 ("restart", "Close game, reset & relaunch", "One button: kill, reset, start via Steam", False),
                 ("guard", "Auto-block Steven", "Game can't arm the penalty anymore (save trigger)", False)]
-        by = hero.y + 170
+        by = hero.y + 230
         for key, label, desc, primary in btns:
-            r = pygame.Rect(hero.x + 28, by, hero.w - 56, 76)
+            r = pygame.Rect(hero.x + 38, by, hero.w - 76, 102)
             self.rects[key] = r
             col = (BAD if st.active else mix(GOOD, CARD, .35)) if primary else CARD_HI
-            rrect(surf, r, col, 16)
+            rrect(surf, r, col, 22)
             fg = DARK if primary and st.active else TEXT
-            text(surf, label, (r.x + 24, r.y + 11), 27, fg, "black")
-            text(surf, desc, (r.x + 24, r.bottom - 11), 18, mix(fg, col, .3), anchor="bottomleft")
+            text(surf, label, (r.x + 32, r.y + 15), 36, fg, "black")
+            text(surf, desc, (r.x + 32, r.bottom - 15), 24, mix(fg, col, .3), anchor="bottomleft")
             if key == "guard":
-                pill(surf, "ON" if st.guarded else "OFF", r.right - 26, r.centery, GOOD if st.guarded else LINE,
-                     DARK if st.guarded else TEXT, 18, anchor="midright")
+                pill(surf, "ON" if st.guarded else "OFF", r.right - 36, r.centery, GOOD if st.guarded else LINE,
+                     DARK if st.guarded else TEXT, 24, anchor="midright")
             else:
-                tri(surf, fg, (r.right - 30, r.centery), 9, "right")
-            by += 88
+                tri(surf, fg, (r.right - 40, r.centery), 12, "right")
+            by += 118
 
         # ---- right column
-        col_x = hero.right + 24
+        col_x = hero.right + 32
         col_w = area.right - col_x
         y = area.y
         for item, key, label in (("gold", "house_gold", "Gold"), ("food", "house_food", "Food")):
-            r = pygame.Rect(col_x, y, col_w, 118)
+            r = pygame.Rect(col_x, y, col_w, 160)
             self.rects[item] = r
-            rrect(surf, r, CARD, 18)
-            (icon_coin if item == "gold" else icon_food)(surf, r.x + 46, r.y + 46, 22)
-            text(surf, label.upper(), (r.x + 82, r.y + 22), 16, FAINT, "black")
+            rrect(surf, r, CARD, 24)
+            (icon_coin if item == "gold" else icon_food)(surf, r.x + 62, r.y + 62, 30)
+            text(surf, label.upper(), (r.x + 110, r.y + 30), 22, FAINT, "black")
             val = self._val(key)
             changed = val != basic[key]
-            text(surf, f"{val:,}", (r.x + 82, r.y + 38), 40, ACCENT if changed else TEXT, "black")
+            text(surf, f"{val:,}", (r.x + 110, r.y + 52), 54, ACCENT if changed else TEXT, "black")
             if changed:
-                text(surf, f"was {basic[key]:,}", (r.x + 82, r.bottom - 12), 17, DIM, anchor="bottomleft")
+                text(surf, f"was {basic[key]:,}", (r.x + 110, r.bottom - 16), 23, DIM, anchor="bottomleft")
             focused = self.ITEMS[self.focus] == item
-            for d, direction, cx in ((-10, "left", r.right - 92), (10, "right", r.right - 40)):
-                ar = pygame.Rect(0, 0, 40, 40)
+            for d, direction, cx in ((-10, "left", r.right - 124), (10, "right", r.right - 54)):
+                ar = pygame.Rect(0, 0, 54, 54)
                 ar.center = (cx, r.centery)
                 self.arrow_rects[(item, d)] = ar
-                rrect(surf, ar, CARD_HI if focused else mix(CARD, CARD_HI, .4), 12)
-                tri(surf, TEXT if focused else DIM, ar.center, 8, direction)
-            y = r.bottom + 14
+                rrect(surf, ar, CARD_HI if focused else mix(CARD, CARD_HI, .4), 16)
+                tri(surf, TEXT if focused else DIM, ar.center, 11, direction)
+            y = r.bottom + 18
 
-        info = pygame.Rect(col_x, y, col_w, 110)
-        rrect(surf, info, mix(CARD, BG_BOT, .4), 18)
+        info = pygame.Rect(col_x, y, col_w, 148)
+        rrect(surf, info, mix(CARD, BG_BOT, .4), 24)
         for i, (lab, val) in enumerate((("DAY", basic["current_day"]), ("CATS", snap.parsed["total_cats"]),
                                         ("DONE", f"{basic['save_percent']}%"))):
             cx = info.x + col_w * (i * 2 + 1) // 6
-            text(surf, str(val), (cx, info.y + 26), 30, TEXT, "black", anchor="midtop")
-            text(surf, lab, (cx, info.y + 68), 15, FAINT, "black", anchor="midtop")
-        y = info.bottom + 14
+            text(surf, str(val), (cx, info.y + 35), 40, TEXT, "black", anchor="midtop")
+            text(surf, lab, (cx, info.y + 92), 20, FAINT, "black", anchor="midtop")
+        y = info.bottom + 18
 
         wr = pygame.Rect(col_x, y, col_w, area.bottom - y)
         self.rects["write"] = wr
         has = not pend.empty()
-        rrect(surf, wr, mix(ACCENT, CARD, .1) if has else CARD, 18)
+        rrect(surf, wr, mix(ACCENT, CARD, .1) if has else CARD, 24)
         fg = DARK if has else FAINT
         text(surf, f"Save {pend.count()} change{'s' if pend.count() != 1 else ''}" if has else "No pending changes",
-             (wr.x + 24, wr.y + 18), 28, fg, "black")
+             (wr.x + 32, wr.y + 24), 38, fg, "black")
         lines = []
         for key, label in (("house_gold", "Gold"), ("house_food", "Food")):
             if key in pend.props:
@@ -912,15 +900,15 @@ class HomeTab(Tab):
             lines.append(f"{len(pend.add_items)} item{'s' if len(pend.add_items) != 1 else ''} to storage")
         if not lines:
             lines = ["Edits wait here until you save.", "Every save makes a backup first."]
-        ly = wr.y + 58
+        ly = wr.y + 78
         for ln in lines[:4]:
-            if ly + 22 > wr.bottom - 8:
+            if ly + 30 > wr.bottom - 10:
                 break
-            text(surf, ln, (wr.x + 24, ly), 19, mix(fg, DARK, .15) if has else DIM, maxw=wr.w - 48)
-            ly += 25
+            text(surf, ln, (wr.x + 32, ly), 26, mix(fg, DARK, .15) if has else DIM, maxw=wr.w - 64)
+            ly += 34
 
         target = self.rects[self.ITEMS[self.focus]]
-        focus_ring(surf, self.ring.to(target), 16 if self.ITEMS[self.focus] in ("reset", "wipe", "restart") else 18)
+        focus_ring(surf, self.ring.to(target), 22 if self.ITEMS[self.focus] in ("reset", "wipe", "restart") else 24)
 
     def hint_items(self):
         item = self.ITEMS[self.focus]
@@ -941,7 +929,7 @@ class CatsTab(Tab):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.list = ListView(row_h=88, gap=8)
+        self.list = ListView(row_h=118, gap=11)
         self.f = 0
         self.chip_rects: list[pygame.Rect] = []
 
@@ -981,31 +969,31 @@ class CatsTab(Tab):
         c = row.data
         gone = c["dead"] or c["donated"]
         ccol = CLASS_COL.get(c["class"], (150, 142, 164))
-        rrect(surf, (r.x, r.y, 8, r.h), ccol if not gone else LINE, 4)
+        rrect(surf, (r.x, r.y, 11, r.h), ccol if not gone else LINE, 5)
         # sex badge
         scol = SEX_COL.get(c["sex"], DIM)
-        pygame.draw.circle(surf, mix(scol, CARD, .25), (r.x + 46, r.centery), 22)
-        text(surf, {"Male": "M", "Female": "F"}.get(c["sex"], "?"), (r.x + 46, r.centery), 22, DARK, "black",
+        pygame.draw.circle(surf, mix(scol, CARD, .25), (r.x + 62, r.centery), 30)
+        text(surf, {"Male": "M", "Female": "F"}.get(c["sex"], "?"), (r.x + 62, r.centery), 30, DARK, "black",
              anchor="center")
         edited = c["key"] in self.app.pending.cats
-        name_r = text(surf, row.label, (r.x + 84, r.y + 12), 28, DIM if gone else TEXT, "black", maxw=300)
+        name_r = text(surf, row.label, (r.x + 114, r.y + 16), 38, DIM if gone else TEXT, "black", maxw=420)
         if edited:
-            pill(surf, "EDITED", name_r.right + 10, name_r.centery, ACCENT, size=14, anchor="midleft")
+            pill(surf, "EDITED", name_r.right + 14, name_r.centery, ACCENT, size=19, anchor="midleft")
         lvl = c["level"] if 0 <= c["level"] <= 99 else "?"
         room = "on adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "-").replace("_", " ")
         flags = [f for f, on in (("retired", c["retired"]), ("dead", c["dead"]), ("donated", c["donated"])) if on]
         text(surf, f"{c['class']} · Lv {lvl} · {c['age']}d · {room}" + (f" · {', '.join(flags)}" if flags else ""),
-             (r.x + 84, r.bottom - 14), 19, DIM, anchor="bottomleft", maxw=560)
+             (r.x + 114, r.bottom - 18), 26, DIM, anchor="bottomleft", maxw=760)
         # stat bars
-        x0 = r.right - 30 - 7 * 34
+        x0 = r.right - 40 - 7 * 46
         for i, s in enumerate(STATS):
             v = c["stats"][s]
-            bx = x0 + i * 34
-            bh = 44
-            rrect(surf, (bx, r.y + 14, 18, bh), mix(LINE, CARD, .4), 5)
+            bx = x0 + i * 46
+            bh = 60
+            rrect(surf, (bx, r.y + 18, 24, bh), mix(LINE, CARD, .4), 7)
             fh = round(bh * max(0, min(7, v)) / 7)
-            rrect(surf, (bx, r.y + 14 + bh - fh, 18, fh), stat_col(v) if not gone else LINE, 5)
-            text(surf, s[0] if s != "LUCK" else "L", (bx + 9, r.bottom - 8), 14, FAINT, "black", anchor="midbottom")
+            rrect(surf, (bx, r.y + 18 + bh - fh, 24, fh), stat_col(v) if not gone else LINE, 7)
+            text(surf, s[0] if s != "LUCK" else "L", (bx + 12, r.bottom - 10), 19, FAINT, "black", anchor="midbottom")
 
     def draw(self, surf, area) -> None:
         x = area.x
@@ -1014,13 +1002,13 @@ class CatsTab(Tab):
         for i, (name, pred) in enumerate(self.FILTERS):
             sel = i == self.f
             n = sum(1 for c in cats if pred(c))
-            r = pill(surf, f"{name}  {n}", x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 19)
+            r = pill(surf, f"{name}  {n}", x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 26)
             self.chip_rects.append(r)
-            x = r.right + 8
-        glyph(surf, "DPAD_LR", x + 8, self.chip_rects[0].centery)
-        la = pygame.Rect(area.x, area.y + 50, area.w - 14, area.h - 50)
+            x = r.right + 11
+        glyph(surf, "DPAD_LR", x + 11, self.chip_rects[0].centery)
+        la = pygame.Rect(area.x, area.y + 68, area.w - 20, area.h - 68)
         if not self.list.rows:
-            text(surf, "No cats in this filter", (la.centerx, la.y + 80), 26, FAINT, "bold", anchor="midtop")
+            text(surf, "No cats in this filter", (la.centerx, la.y + 108), 35, FAINT, "bold", anchor="midtop")
             return
         self.list.draw(surf, la, self.render_row)
 
@@ -1034,7 +1022,7 @@ class CatEdit(Screen):
     def __init__(self, app: "App", cats: list[dict[str, Any]], index: int) -> None:
         super().__init__(app)
         self.cats, self.idx = cats, index
-        self.list = ListView(row_h=60, gap=6)
+        self.list = ListView(row_h=80, gap=8)
         self.load()
 
     @property
@@ -1135,18 +1123,18 @@ class CatEdit(Screen):
         v, c = self.vals, self.cat
         kind = row.data[0]
         col = TEXT if row.enabled else FAINT
-        text(surf, row.label, (r.x + 22, r.centery), 24, col, "black", anchor="midleft")
+        text(surf, row.label, (r.x + 30, r.centery), 32, col, "black", anchor="midleft")
         ccol = CLASS_COL.get(c["class"], ACCENT)
         if kind == "stat":
             s = row.data[1]
             new, old = v["stats"][s], c["stats"][s]
-            x = r.x + 140
+            x = r.x + 190
             for i in range(7):
                 filled = i < new
                 was = i < old
                 colr = stat_col(new) if filled and was else ACCENT if filled else mix(BAD, CARD, .4) if was else mix(LINE, CARD, .3)
-                rrect(surf, (x + i * 40, r.centery - 11, 34, 22), colr, 6)
-            text(surf, str(new), (r.right - 60, r.centery), 28, ACCENT if new != old else TEXT, "black", anchor="center")
+                rrect(surf, (x + i * 54, r.centery - 15, 46, 30), colr, 8)
+            text(surf, str(new), (r.right - 80, r.centery), 38, ACCENT if new != old else TEXT, "black", anchor="center")
         elif kind in ("level", "age", "sex", "retired"):
             val = v[kind]
             shown = ("yes" if val else "no") if kind == "retired" else (f"{val} days" if kind == "age" else str(val))
@@ -1154,68 +1142,68 @@ class CatEdit(Screen):
                 shown = "?"
             changed = val != c[kind]
             if not row.enabled:
-                text(surf, "locked · field not found safely", (r.x + 140, r.centery), 19, FAINT, anchor="midleft")
+                text(surf, "locked · field not found safely", (r.x + 190, r.centery), 26, FAINT, anchor="midleft")
             else:
-                tri(surf, DIM if selected else LINE, (r.right - 150, r.centery), 8, "left")
-                tri(surf, DIM if selected else LINE, (r.right - 30, r.centery), 8, "right")
-            text(surf, shown, (r.right - 90, r.centery), 26, ACCENT if changed else col, "black", anchor="center")
+                tri(surf, DIM if selected else LINE, (r.right - 202, r.centery), 11, "left")
+                tri(surf, DIM if selected else LINE, (r.right - 40, r.centery), 11, "right")
+            text(surf, shown, (r.right - 121, r.centery), 35, ACCENT if changed else col, "black", anchor="center")
             if changed:
                 was = c[kind]
                 was_s = ("yes" if was else "no") if kind == "retired" else str(was)
-                text(surf, f"was {was_s}", (r.x + 140, r.centery), 18, DIM, anchor="midleft")
+                text(surf, f"was {was_s}", (r.x + 190, r.centery), 24, DIM, anchor="midleft")
         else:
-            text(surf, "A", (r.right - 40, r.centery), 20, DIM, "black", anchor="center")
+            text(surf, "A", (r.right - 54, r.centery), 27, DIM, "black", anchor="center")
 
     def draw(self, surf) -> None:
         c = self.cat
         ccol = CLASS_COL.get(c["class"], ACCENT)
         # side card
-        card = pygame.Rect(W - PAD - 400, HEADER_H + 20, 400, CONTENT_BOTTOM - HEADER_H - 20)
-        rrect(surf, card, CARD, 20)
-        band = pygame.Rect(card.x, card.y, card.w, 150)
+        card = pygame.Rect(W - PAD - 540, HEADER_H + 28, 540, CONTENT_BOTTOM - HEADER_H - 28)
+        rrect(surf, card, CARD, 26)
+        band = pygame.Rect(card.x, card.y, card.w, 202)
         tint = pygame.Surface(band.size, pygame.SRCALPHA)
         tint.fill((*ccol, 40))
         surf.blit(tint, band.topleft)
-        icon_cat(surf, card.x + 70, card.y + 78, 40, ccol, CARD)
-        text(surf, c["name"] or f"#{c['key']}", (card.x + 130, card.y + 36), 32, TEXT, "black", maxw=card.w - 150)
-        pill(surf, c["class"], card.x + 130, card.y + 86, ccol, size=17)
-        y = card.y + 170
+        icon_cat(surf, card.x + 94, card.y + 106, 54, ccol, CARD)
+        text(surf, c["name"] or f"#{c['key']}", (card.x + 176, card.y + 48), 42, TEXT, "black", maxw=card.w - 200)
+        pill(surf, c["class"], card.x + 176, card.y + 116, ccol, size=23)
+        y = card.y + 230
         room = "On an adventure" if c["room"] == "(ADVENTURE)" else (c["room"] or "-").replace("_", " ")
         status = ", ".join(f for f, on in (("dead", c["dead"]), ("donated", c["donated"]), ("old", c["isOld"])) if on)
         for lab, val in (("ROOM", room), ("STATUS", status or "healthy"), ("CAT", f"{self.idx + 1} of {len(self.cats)}")):
-            text(surf, lab, (card.x + 28, y), 15, FAINT, "black")
-            text(surf, val, (card.x + 28, y + 20), 24, TEXT, "bold", maxw=card.w - 56)
-            y += 64
+            text(surf, lab, (card.x + 38, y), 20, FAINT, "black")
+            text(surf, val, (card.x + 38, y + 26), 32, TEXT, "bold", maxw=card.w - 76)
+            y += 86
         cur = self.list.current
         if cur and cur.data[0] == "stat":
-            info = pygame.Rect(card.x + 16, card.bottom - 112, card.w - 32, 96)
-            rrect(surf, info, CARD_HI, 14)
+            info = pygame.Rect(card.x + 22, card.bottom - 152, card.w - 44, 130)
+            rrect(surf, info, CARD_HI, 18)
             s = cur.data[1]
-            text(surf, s, (info.x + 16, info.y + 12), 18, stat_col(self.vals["stats"][s]), "black")
+            text(surf, s, (info.x + 22, info.y + 16), 24, stat_col(self.vals["stats"][s]), "black")
             words, lines, ln = STAT_INFO[s].split(), [], ""
             for w in words:
-                if F(19).size((ln + " " + w).strip())[0] > info.w - 32:
+                if F(26).size((ln + " " + w).strip())[0] > info.w - 44:
                     lines.append(ln)
                     ln = w
                 else:
                     ln = (ln + " " + w).strip()
             lines.append(ln)
             for i, l in enumerate(lines[:2]):
-                text(surf, l, (info.x + 16, info.y + 40 + i * 24), 19, DIM)
-        text(surf, "ABILITIES", (card.x + 28, y), 15, FAINT, "black")
-        y += 24
+                text(surf, l, (info.x + 22, info.y + 54 + i * 32), 26, DIM)
+        text(surf, "ABILITIES", (card.x + 38, y), 20, FAINT, "black")
+        y += 32
         abil = [a for a in c["abilities"]["active"] + c["abilities"]["passive"] if a and a != "DefaultMove"]
         for a in abil[:6]:
-            if y > card.bottom - (140 if cur and cur.data[0] == "stat" else 34):
+            if y > card.bottom - (188 if cur and cur.data[0] == "stat" else 46):
                 break
-            text(surf, a, (card.x + 28, y), 20, DIM, maxw=card.w - 56)
-            y += 27
+            text(surf, a, (card.x + 38, y), 27, DIM, maxw=card.w - 76)
+            y += 36
         # stats list
-        area = pygame.Rect(PAD, HEADER_H + 20, card.x - PAD - 30, CONTENT_BOTTOM - HEADER_H - 20)
+        area = pygame.Rect(PAD, HEADER_H + 28, card.x - PAD - 40, CONTENT_BOTTOM - HEADER_H - 28)
         self.list.draw(surf, area, self.render_row)
         # prev/next affordance
-        glyph(surf, "LB", card.x + card.w - 100, card.y + 24)
-        glyph(surf, "RB", card.x + card.w - 54, card.y + 24)
+        glyph(surf, "LB", card.x + card.w - 136, card.y + 32)
+        glyph(surf, "RB", card.x + card.w - 74, card.y + 32)
 
     def hint_items(self):
         return [("DPAD_LR", "Adjust"), ("LBRB", "Prev/next cat"), ("B", "Done")] + pending_hint(self.app)
@@ -1233,7 +1221,7 @@ class ItemsTab(Tab):
         kinds = sorted({i.get("kind") or "other" for i in self.items})
         self.tabs = ["all"] + kinds
         self.t = 0
-        self.list = ListView(row_h=62, gap=6)
+        self.list = ListView(row_h=84, gap=8)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
 
     def on_enter(self) -> None:
@@ -1274,54 +1262,54 @@ class ItemsTab(Tab):
     def render_row(self, surf, r, row: Row, selected: bool) -> None:
         it = row.data
         rc = RARITY_COL.get(it.get("rarity", ""), DIM)
-        pygame.draw.circle(surf, rc, (r.x + 30, r.centery), 9)
-        text(surf, row.label, (r.x + 54, r.centery), 25, TEXT, "bold", anchor="midleft", maxw=r.w - 280)
-        text(surf, f"{(it.get('rarity') or '').replace('_', ' ')} · {it.get('kind') or 'other'}", (r.right - 90, r.centery),
-             18, FAINT, anchor="midright")
+        pygame.draw.circle(surf, rc, (r.x + 40, r.centery), 12)
+        text(surf, row.label, (r.x + 74, r.centery), 34, TEXT, "bold", anchor="midleft", maxw=r.w - 380)
+        text(surf, f"{(it.get('rarity') or '').replace('_', ' ')} · {it.get('kind') or 'other'}", (r.right - 122, r.centery),
+             24, FAINT, anchor="midright")
         n = self.app.pending.add_items.count(it["id"])
         if n:
-            pill(surf, f"+{n}", r.right - 20, r.centery, ACCENT, size=20, anchor="midright")
+            pill(surf, f"+{n}", r.right - 28, r.centery, ACCENT, size=27, anchor="midright")
 
     def draw(self, surf, area) -> None:
         # category chips, scrolled so the selected one is visible
         self.chip_rects = []
-        widths = [F(18, "bold").size(t)[0] + 18 + 8 for t in self.tabs]
+        widths = [F(24, "bold").size(t)[0] + 24 + 11 for t in self.tabs]
         start = 0
-        while sum(widths[start:self.t + 1]) > area.w - 420 and start < self.t:
+        while sum(widths[start:self.t + 1]) > area.w - 568 and start < self.t:
             start += 1
         x = area.x
         if start:
-            tri(surf, DIM, (x + 6, area.y + 15), 7, "left")
-            x += 20
+            tri(surf, DIM, (x + 8, area.y + 20), 9, "left")
+            x += 27
         for i in range(start, len(self.tabs)):
             sel = i == self.t
-            r = pill(surf, self.tabs[i].replace("_", " "), x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 18)
-            if r.right > area.right - 400:
+            r = pill(surf, self.tabs[i].replace("_", " "), x, area.y, ACCENT if sel else CARD, DARK if sel else DIM, 24)
+            if r.right > area.right - 540:
                 break
             self.chip_rects.append((r, i))
-            x = r.right + 8
-        la = pygame.Rect(area.x, area.y + 48, area.w - 400, area.h - 48)
+            x = r.right + 11
+        la = pygame.Rect(area.x, area.y + 64, area.w - 540, area.h - 64)
         self.list.draw(surf, la, self.render_row)
         # queue panel
-        qp = pygame.Rect(area.right - 370, area.y, 370, area.h)
-        rrect(surf, qp, CARD, 18)
-        text(surf, "GOING TO STORAGE", (qp.x + 24, qp.y + 22), 15, FAINT, "black")
+        qp = pygame.Rect(area.right - 500, area.y, 500, area.h)
+        rrect(surf, qp, CARD, 24)
+        text(surf, "GOING TO STORAGE", (qp.x + 32, qp.y + 30), 20, FAINT, "black")
         q = self.app.pending.add_items
         if not q:
-            text(surf, "Nothing queued yet", (qp.x + 24, qp.y + 54), 22, DIM, "bold")
-            text(surf, "A adds one, X removes one.", (qp.x + 24, qp.y + 86), 19, FAINT)
-            text(surf, "Menu saves everything.", (qp.x + 24, qp.y + 112), 19, FAINT)
+            text(surf, "Nothing queued yet", (qp.x + 32, qp.y + 74), 30, DIM, "bold")
+            text(surf, "A adds one, X removes one.", (qp.x + 32, qp.y + 116), 26, FAINT)
+            text(surf, "Menu saves everything.", (qp.x + 32, qp.y + 152), 26, FAINT)
             return
         counts: dict[str, int] = {}
         for i in q:
             counts[i] = counts.get(i, 0) + 1
         names = {it["id"]: it.get("name") or it["id"] for it in self.items}
-        y = qp.y + 54
+        y = qp.y + 74
         for iid, n in list(counts.items())[-12:]:
-            text(surf, names.get(iid, iid), (qp.x + 24, y), 21, TEXT, "bold", maxw=qp.w - 100)
-            text(surf, f"×{n}", (qp.right - 24, y), 21, ACCENT, "black", anchor="topright")
-            y += 32
-        text(surf, f"{len(q)} item{'s' if len(q) != 1 else ''} total", (qp.x + 24, qp.bottom - 22), 19, DIM,
+            text(surf, names.get(iid, iid), (qp.x + 32, y), 28, TEXT, "bold", maxw=qp.w - 135)
+            text(surf, f"×{n}", (qp.right - 32, y), 28, ACCENT, "black", anchor="topright")
+            y += 42
+        text(surf, f"{len(q)} item{'s' if len(q) != 1 else ''} total", (qp.x + 32, qp.bottom - 30), 26, DIM,
              anchor="bottomleft")
 
     def hint_items(self):
@@ -1335,7 +1323,7 @@ class BackupsTab(Tab):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app)
-        self.list = ListView(row_h=76, gap=8)
+        self.list = ListView(row_h=102, gap=11)
 
     def on_enter(self) -> None:
         self.list.set_rows([Row(b.when.strftime("%b %d"), data=b) for b in sf.list_backups(self.app.save)])
@@ -1368,22 +1356,22 @@ class BackupsTab(Tab):
     @staticmethod
     def render_row(surf, r, row: Row, selected: bool) -> None:
         b: sf.Backup = row.data
-        text(surf, b.when.strftime("%a %b %d"), (r.x + 24, r.y + 12), 26, TEXT, "black")
-        text(surf, b.when.strftime("%H:%M:%S"), (r.x + 24, r.bottom - 12), 19, DIM, anchor="bottomleft")
+        text(surf, b.when.strftime("%a %b %d"), (r.x + 32, r.y + 16), 35, TEXT, "black")
+        text(surf, b.when.strftime("%H:%M:%S"), (r.x + 32, r.bottom - 16), 26, DIM, anchor="bottomleft")
         reason = b.reason.replace("before-", "before ").replace("-", " ") or "backup"
-        pill(surf, reason, r.x + 260, r.centery, CARD_HI if not selected else LINE, TEXT, 17, anchor="midleft")
-        text(surf, f"Day {b.day if b.day is not None else '?'}", (r.right - 210, r.centery), 22, DIM, "bold",
+        pill(surf, reason, r.x + 350, r.centery, CARD_HI if not selected else LINE, TEXT, 23, anchor="midleft")
+        text(surf, f"Day {b.day if b.day is not None else '?'}", (r.right - 284, r.centery), 30, DIM, "bold",
              anchor="midright")
         on = b.penalty not in (None, 0)
-        pill(surf, "Steven ON" if on else "clear", r.right - 22, r.centery, BAD if on else mix(GOOD, CARD, .3),
-             size=16, anchor="midright")
+        pill(surf, "Steven ON" if on else "clear", r.right - 30, r.centery, BAD if on else mix(GOOD, CARD, .3),
+             size=22, anchor="midright")
 
     def draw(self, surf, area) -> None:
-        text(surf, str(sf.backup_dir_for(self.app.save)), (area.x, area.y), 18, FAINT, maxw=area.w)
-        la = pygame.Rect(area.x, area.y + 36, area.w - 14, area.h - 36)
+        text(surf, str(sf.backup_dir_for(self.app.save)), (area.x, area.y), 24, FAINT, maxw=area.w)
+        la = pygame.Rect(area.x, area.y + 48, area.w - 20, area.h - 48)
         if not self.list.rows:
-            text(surf, "No backups yet. One is made automatically before every save.", (la.centerx, la.y + 80),
-                 24, DIM, "bold", anchor="midtop")
+            text(surf, "No backups yet. One is made automatically before every save.", (la.centerx, la.y + 108),
+                 32, DIM, "bold", anchor="midtop")
             return
         self.list.draw(surf, la, self.render_row)
 
@@ -1420,33 +1408,33 @@ class Confirm(Screen):
         shade = pygame.Surface((W, H), pygame.SRCALPHA)
         shade.fill((8, 5, 12, int(190 * k)))
         surf.blit(shade, (0, 0))
-        r = pygame.Rect(0, 0, 760, 300)
-        r.center = (W // 2, H // 2 + int((1 - k) * 30))
-        rrect(surf, r, CARD, 24)
+        r = pygame.Rect(0, 0, 1026, 405)
+        r.center = (W // 2, H // 2 + int((1 - k) * 40))
+        rrect(surf, r, CARD, 32)
         col = BAD if self.danger else ACCENT
-        rrect(surf, (r.x, r.y, r.w, 8), col, 4)
-        text(surf, self.msg, (r.x + 44, r.y + 40), 36, TEXT, "black", maxw=r.w - 88)
+        rrect(surf, (r.x, r.y, r.w, 11), col, 5)
+        text(surf, self.msg, (r.x + 60, r.y + 54), 48, TEXT, "black", maxw=r.w - 120)
         words, lines, cur = self.body.split(), [], ""
         for w in words:
-            if F(22).size((cur + " " + w).strip())[0] > r.w - 88:
+            if F(30).size((cur + " " + w).strip())[0] > r.w - 120:
                 lines.append(cur)
                 cur = w
             else:
                 cur = (cur + " " + w).strip()
         lines.append(cur)
         for i, ln in enumerate(lines[:3]):
-            text(surf, ln, (r.x + 44, r.y + 100 + i * 32), 22, DIM)
+            text(surf, ln, (r.x + 60, r.y + 135 + i * 42), 30, DIM)
         self.btn_rects = {}
-        bx = r.right - 44
+        bx = r.right - 60
         for key, label, bg, fg in (("A", self.yes, col, DARK), ("B", "Cancel", CARD_HI, TEXT)):
-            img = F(24, "black").render(label, True, fg)
-            br = pygame.Rect(0, 0, img.get_width() + 78, 56)
-            br.bottomright = (bx, r.bottom - 32)
-            rrect(surf, br, bg, 16)
-            glyph(surf, key, br.x + 14, br.centery)
-            surf.blit(img, img.get_rect(midleft=(br.x + 54, br.centery)))
+            img = F(32, "black").render(label, True, fg)
+            br = pygame.Rect(0, 0, img.get_width() + 104, 76)
+            br.bottomright = (bx, r.bottom - 44)
+            rrect(surf, br, bg, 22)
+            glyph(surf, key, br.x + 20, br.centery)
+            surf.blit(img, img.get_rect(midleft=(br.x + 74, br.centery)))
             self.btn_rects[key] = br
-            bx = br.x - 14
+            bx = br.x - 18
 
     def hint_items(self):
         return [("A", self.yes), ("B", "Cancel")]
@@ -1458,24 +1446,25 @@ class App:
     def __init__(self, windowed: bool = False, save: Path | None = None) -> None:
         global F
         for k, v in (("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1"),
-                     ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1"),  # gamescope focus quirks
-                     ("PYGAME_FORCE_SCALE", "photo"),  # smooth (linear) scaling instead of nearest-neighbour
-                     ("SDL_RENDER_SCALE_QUALITY", "linear")):
+                     ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")):  # gamescope focus quirks
             os.environ.setdefault(k, v)
         pygame.init()
         pygame.display.set_caption("MewDeck")
-        sizes = pygame.display.get_desktop_sizes() or [(1280, 800)]
+        sizes = pygame.display.get_desktop_sizes() or [(W, H)]
+        in_gamescope = "GAMESCOPE_WAYLAND_DISPLAY" in os.environ or "SteamAppId" in os.environ
         log(f"pygame {pygame.version.ver} SDL {'.'.join(map(str, pygame.get_sdl_version()))} "
             f"driver={pygame.display.get_driver()} desktop={sizes} "
-            f"SteamAppId={os.environ.get('SteamAppId')} gamescope={'GAMESCOPE_WAYLAND_DISPLAY' in os.environ}")
-        if not windowed:
-            configure_canvas(*sizes[0])
-        flags = pygame.SCALED | (0 if windowed else pygame.FULLSCREEN)
-        try:
-            self.screen = pygame.display.set_mode((W, H), flags, vsync=1)
-        except pygame.error:
-            self.screen = pygame.display.set_mode((W, H), flags)
-        log(f"canvas {W}x{H} window={pygame.display.get_window_size()}")
+            f"SteamAppId={os.environ.get('SteamAppId')} gamescope={in_gamescope}")
+        dw, dh = sizes[0]
+        if windowed:
+            win_size = (W, H) if (dw > W and dh > H) else (1280, 720)
+            self.window = self._set_mode(win_size, pygame.RESIZABLE)
+        elif in_gamescope or (dw >= W and dh >= H):
+            self.window = self._set_mode((W, H), pygame.FULLSCREEN)
+        else:  # desktop smaller than 1080p (e.g. XWayland with display scaling): borderless desktop, never crop
+            self.window = self._set_mode((0, 0), pygame.FULLSCREEN)
+        self._sync_surface()
+        log(f"canvas {W}x{H} window={self.window.get_size()}")
         pygame.key.set_repeat(340, 55)
         pygame.mouse.set_visible(windowed)
         F = Fonts()
@@ -1499,6 +1488,19 @@ class App:
                 self.open_save(rows[0].data[0])
 
     @staticmethod
+    def _set_mode(size: tuple[int, int], flags: int) -> pygame.Surface:
+        try:
+            return pygame.display.set_mode(size, flags, vsync=1)
+        except pygame.error:
+            try:
+                return pygame.display.set_mode(size, flags)
+            except pygame.error:
+                return pygame.display.set_mode((0, 0), flags)
+
+    def _sync_surface(self) -> None:
+        self.screen = self.window if self.window.get_size() == (W, H) else pygame.Surface((W, H))
+
+    @staticmethod
     def _make_bg() -> pygame.Surface:
         bg = pygame.Surface((W, H))
         for y in range(H):
@@ -1509,8 +1511,8 @@ class App:
             for xx in range(n):
                 d = math.hypot(xx - n / 2 + .5, yy - n / 2 + .5) / (n / 2)
                 small.set_at((xx, yy), (*ACCENT, int(max(0.0, 1 - d) ** 2 * 26)))
-        glow = pygame.transform.smoothscale(small, (1300, 1300))
-        bg.blit(glow, (W - 160 - 650, -60 - 650))
+        glow = pygame.transform.smoothscale(small, (1750, 1750))
+        bg.blit(glow, (W - 216 - 875, -80 - 875))
         return bg
 
     # navigation
@@ -1619,58 +1621,58 @@ class App:
 
     # rendering
     def _header(self, s) -> None:
-        icon_cat(s, PAD + 20, HEADER_H // 2 + 3, 22)
-        r = text(s, "MewDeck", (PAD + 52, HEADER_H // 2), 34, TEXT, "black", anchor="midleft")
+        icon_cat(s, PAD + 28, HEADER_H // 2 + 4, 30)
+        r = text(s, "MewDeck", (PAD + 70, HEADER_H // 2), 46, TEXT, "black", anchor="midleft")
         crumbs = [x.title for x in self.stack[1:] if x.title and not isinstance(x, Confirm)]
         if self.save and crumbs:
             crumbs[0] = self.save.stem
         if crumbs:
-            text(s, "  /  ".join(crumbs), (r.right + 22, HEADER_H // 2 + 2), 22, DIM, "bold", anchor="midleft",
-                 maxw=560)
-        self.quit_rect = pygame.Rect(W - PAD - 44, HEADER_H // 2 - 22, 44, 44)
+            text(s, "  /  ".join(crumbs), (r.right + 30, HEADER_H // 2 + 3), 30, DIM, "bold", anchor="midleft",
+                 maxw=760)
+        self.quit_rect = pygame.Rect(W - PAD - 60, HEADER_H // 2 - 30, 60, 60)
         qr = self.quit_rect
-        rrect(s, qr, CARD, 12)
+        rrect(s, qr, CARD, 16)
         for d in (-1, 1):
-            pygame.draw.line(s, DIM, (qr.centerx - 9, qr.centery - 9 * d), (qr.centerx + 9, qr.centery + 9 * d), 4)
-        x = qr.x - 12
+            pygame.draw.line(s, DIM, (qr.centerx - 12, qr.centery - 12 * d), (qr.centerx + 12, qr.centery + 12 * d), 5)
+        x = qr.x - 16
         if self._game_running:
-            pr = pill(s, "GAME RUNNING · close it to save", x, HEADER_H // 2, BAD, size=18, anchor="midright")
-            x = pr.x - 10
+            pr = pill(s, "GAME RUNNING · close it to save", x, HEADER_H // 2, BAD, size=24, anchor="midright")
+            x = pr.x - 14
         if not self.pending.empty():
-            pill(s, f"{self.pending.count()} unsaved", x, HEADER_H // 2, ACCENT, size=18, anchor="midright")
+            pill(s, f"{self.pending.count()} unsaved", x, HEADER_H // 2, ACCENT, size=24, anchor="midright")
 
     def _footer(self, s, items) -> None:
         y = H - FOOTER_H
-        pygame.draw.line(s, CARD, (0, y), (W, y), 2)
+        pygame.draw.line(s, CARD, (0, y), (W, y), 3)
         x = PAD
         cy = y + FOOTER_H // 2
         for btn, label in items:
-            x = glyph(s, btn, x, cy) + 10
-            x = text(s, label, (x, cy), 20, DIM, "bold", anchor="midleft").right + 28
+            x = glyph(s, btn, x, cy) + 14
+            x = text(s, label, (x, cy), 27, DIM, "bold", anchor="midleft").right + 38
         names = self.input.names
         status = names[0] if names else "No controller found · touch works"
-        text(s, status, (W - PAD, cy), 16, FAINT if names else BAD, "bold", anchor="midright",
-             maxw=max(60, W - PAD - x - 10))
+        text(s, status, (W - PAD, cy), 22, FAINT if names else BAD, "bold", anchor="midright",
+             maxw=max(80, W - PAD - x - 14))
 
     def _toasts(self, s) -> None:
         now = time.time()
         self.toasts = [t for t in self.toasts if t[3] > now]
-        y = H - FOOTER_H - 24
+        y = H - FOOTER_H - 32
         for msg, col, t0, t1 in reversed(self.toasts[-3:]):
             k_in = min(1.0, (now - t0) / 0.18)
             k_out = min(1.0, (t1 - now) / 0.3)
             a = int(255 * min(k_in, k_out))
-            img = F(24, "black").render(msg, True, col)
-            box = pygame.Rect(0, 0, img.get_width() + 64, 54)
-            box.midbottom = (W // 2, y + int((1 - k_in) * 20))
+            img = F(32, "black").render(msg, True, col)
+            box = pygame.Rect(0, 0, img.get_width() + 86, 72)
+            box.midbottom = (W // 2, y + int((1 - k_in) * 27))
             panel = pygame.Surface(box.size, pygame.SRCALPHA)
-            pygame.draw.rect(panel, (*DARK, 240), panel.get_rect(), border_radius=27)
-            pygame.draw.rect(panel, (*col, 255), panel.get_rect(), 2, border_radius=27)
-            pygame.draw.circle(panel, col, (26, box.h // 2), 6)
-            panel.blit(img, img.get_rect(midleft=(42, box.h // 2)))
+            pygame.draw.rect(panel, (*DARK, 240), panel.get_rect(), border_radius=36)
+            pygame.draw.rect(panel, (*col, 255), panel.get_rect(), 3, border_radius=36)
+            pygame.draw.circle(panel, col, (35, box.h // 2), 8)
+            panel.blit(img, img.get_rect(midleft=(56, box.h // 2)))
             panel.set_alpha(a)
             s.blit(panel, box)
-            y = box.top - 10
+            y = box.top - 14
 
     def render(self) -> None:
         s = self.screen
@@ -1680,7 +1682,15 @@ class App:
         top.draw(s)
         self._footer(s, top.hint_items())
         self._toasts(s)
+        if self.screen is not self.window:
+            pygame.transform.smoothscale(self.screen, self.window.get_size(), self.window)
         pygame.display.flip()
+
+    def _map_pos(self, pos: tuple[float, float]) -> tuple[float, float]:
+        ww, wh = self.window.get_size()
+        if (ww, wh) == (W, H) or ww <= 0 or wh <= 0:
+            return pos
+        return (pos[0] * W / ww, pos[1] * H / wh)
 
     def click(self, pos) -> None:
         if getattr(self, "quit_rect", None) and self.quit_rect.collidepoint(pos):
@@ -1700,10 +1710,12 @@ class App:
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     self.running = False
+                elif ev.type == pygame.VIDEORESIZE:
+                    self._sync_surface()
                 elif ev.type == pygame.FINGERDOWN:  # touchscreen (normalised coords)
                     self.click((ev.x * W, ev.y * H))
                 elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and not getattr(ev, "touch", False):
-                    self.click(ev.pos)
+                    self.click(self._map_pos(ev.pos))
                 elif ev.type == pygame.MOUSEWHEEL and not getattr(ev, "touch", False):
                     self.top().handle(UP if ev.y > 0 else DOWN)
                 else:
