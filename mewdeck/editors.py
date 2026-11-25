@@ -144,7 +144,7 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
 # --------------------------------------------------------------------------- built-in Gamepad + Touch Search Modal
 
 class SearchModal:
-    """Built-in 1080p gamepad + touch + physical keyboard search modal (no Steam OSK needed!)."""
+    """Built-in 1080p gamepad + touch + physical keyboard modal (powers both Search and Cat Rename)."""
 
     ROWS = [
         list("1234567890"),
@@ -154,14 +154,16 @@ class SearchModal:
         ["SPACE", "BACK", "CLEAR", "DONE"],
     ]
 
-    def __init__(self, ui, app, title: str, initial: str, count_fn: Callable[[str], int],
-                 on_done: Callable[[str], None]) -> None:
+    def __init__(self, ui, app, title: str, initial: str, count_fn: Callable[[str], int] | None,
+                 on_done: Callable[[str], None], done_label: str = "Search", title_case: bool = False) -> None:
         self.ui = ui
         self.app = app
         self.title = title
         self.query = initial
         self.count_fn = count_fn
         self.on_done = on_done
+        self.done_label = done_label
+        self.title_case = title_case
         self.r = 1
         self.c = 0
         self.key_rects: list[tuple[pygame.Rect, int, int, str]] = []
@@ -207,7 +209,8 @@ class SearchModal:
             self._finish()
         else:
             if len(self.query) < 32:
-                self.query += k.lower()
+                cap = self.title_case and (not self.query or self.query.endswith(" "))
+                self.query += k.upper() if cap else k.lower()
 
     def handle(self, btn: str) -> None:
         ui = self.ui
@@ -254,10 +257,14 @@ class SearchModal:
         ui.rrect(surf, (box.x, box.y, box.w, 8), ui.ACCENT, 4)
 
         ui.text(surf, self.title, (box.x + 44, box.y + 30), 34, ui.TEXT, "black")
-        matches = self.count_fn(self.query.strip())
-        mcol = ui.GOOD if matches else ui.BAD
-        ui.pill(surf, f"{matches} match{'es' if matches != 1 else ''}", box.right - 44, box.y + 46,
-                ui.mix(mcol, ui.CARD, .72), mcol, size=22, anchor="midright")
+        if self.count_fn is not None:
+            matches = self.count_fn(self.query.strip())
+            mcol = ui.GOOD if matches else ui.BAD
+            ui.pill(surf, f"{matches} match{'es' if matches != 1 else ''}", box.right - 44, box.y + 46,
+                    ui.mix(mcol, ui.CARD, .72), mcol, size=22, anchor="midright")
+        else:
+            ui.pill(surf, f"{len(self.query)}/32 chars", box.right - 44, box.y + 46,
+                    ui.CARD_HI, ui.DIM, size=20, anchor="midright")
 
         # Input field
         inp = pygame.Rect(box.x + 44, box.y + 94, box.w - 88, 76)
@@ -290,7 +297,7 @@ class SearchModal:
                 tot = sum(weights)
                 avail = grid_w - gap * (len(keys) - 1)
                 x = grid_x
-                labels = {"SPACE": "Space", "BACK": "Backspace", "CLEAR": "Clear", "DONE": "Search"}
+                labels = {"SPACE": "Space", "BACK": "Backspace", "CLEAR": "Clear", "DONE": self.done_label}
                 for cc, (k, wt) in enumerate(zip(keys, weights)):
                     kw = avail * wt // tot
                     kr = pygame.Rect(x, y, kw, row_h)
@@ -405,6 +412,8 @@ class CatalogPicker:
         if btn in (ui.UP, ui.DOWN):
             step = 1 if self.app.input.count.get(btn, 0) < 12 else 5
             self.list.move((-1 if btn == ui.UP else 1) * step)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-10 if btn == ui.LT else 10)
         elif btn in (ui.LEFT, ui.RIGHT, ui.LB, ui.RB):
             d = 1 if btn in (ui.RIGHT, ui.RB) else -1
             self.cat_idx = (self.cat_idx + d) % len(self.categories)
@@ -782,7 +791,7 @@ class AbilitiesScreen:
                         ui.text(surf, ln, (x, y), 25, ui.TEXT)
                     y += 32
                 y += 20
-                ui.text(surf, "Press ◀ ▶ to switch Tier 1 / Tier 2 (+).", (x, y), 22, ui.DIM)
+                ui.text(surf, "Press Left/Right to switch Tier 1 / Tier 2 (+).", (x, y), 22, ui.DIM)
             else:
                 ui.text(surf, "Press A to assign a passive.", (x, y), 25, ui.DIM)
         else:
@@ -903,6 +912,22 @@ class MutationsScreen:
         row = self.list.current
         if btn in (ui.UP, ui.DOWN):
             self.list.move(-1 if btn == ui.UP else 1)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-8 if btn == ui.LT else 8)
+        elif btn == ui.SELECT:
+            # Clear all birth defects (-2) across all 14 body parts
+            cleared = 0
+            muts = self.cat_edit.vals["mutations"]
+            for key, _, _, _ in gd.MUTATION_SLOTS:
+                if gd.signed_mut_id(muts.get(key, 0)) == -2:
+                    muts[key] = 0
+                    cleared += 1
+            if cleared:
+                self.cat_edit.commit_local()
+                self.build()
+                self.app.toast(f"Cleared {cleared} birth defect{'s' if cleared != 1 else ''}", ui.GOOD)
+            else:
+                self.app.toast("No birth defects on this cat", ui.DIM)
         elif btn == ui.A:
             self._open_picker()
         elif btn == ui.X and row:
@@ -977,7 +1002,7 @@ class MutationsScreen:
 
     def hint_items(self):
         row = self.list.current
-        out = [("A", "Change"), ("X", "Clear")]
+        out = [("A", "Change"), ("X", "Clear"), ("SELECT", "Clear defects")]
         if row and row.data[2]:
             out.append(("Y", "Mirror L/R"))
         out.append(("B", "Done"))
@@ -1081,11 +1106,45 @@ class EquipScreen:
             elif info.get("rarity"):
                 ui.pill(surf, info["rarity"].replace("_", " "), r.right - 28, r.centery, rc, ui.DARK, size=18, anchor="midright")
 
+    def _set_progress(self) -> list[tuple[dict[str, Any], int]]:
+        """Aggregate equipped items by armor set across all 5 slots."""
+        counts: dict[str, int] = {}
+        sb_map = gd.set_bonuses()
+        for iid in self.cat_edit.vals["equipment"].values():
+            if not iid:
+                continue
+            for sb in gd.item_set_info(gd.item_info(iid)):
+                counts[sb["id"]] = counts.get(sb["id"], 0) + 1
+        out = [(sb_map[sid], cnt) for sid, cnt in counts.items() if sid in sb_map]
+        out.sort(key=lambda x: (-(x[1] >= x[0].get("pieces", 3)), -x[1], x[0]["name"]))
+        return out
+
     def draw(self, surf) -> None:
         ui = self.ui
         area = pygame.Rect(ui.PAD, ui.HEADER_H + 24, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 24)
-        la = pygame.Rect(area.x, area.y, area.w - 640, area.h)
+        sets = self._set_progress()
+        set_h = 156 if sets else 0
+        la = pygame.Rect(area.x, area.y, area.w - 640, area.h - set_h - (16 if set_h else 0))
         self.list.draw(surf, la, self._render_row)
+
+        if sets:
+            sbox = pygame.Rect(area.x, la.bottom + 16, la.w, set_h)
+            ui.rrect(surf, sbox, ui.CARD, 22)
+            ui.text(surf, "EQUIPPED ARMOR SET SYNERGY", (sbox.x + 26, sbox.y + 18), 18, ui.FAINT, "black")
+            sy = sbox.y + 48
+            for sb, cnt in sets[:3]:
+                req = sb.get("pieces", 3)
+                active = cnt >= req
+                col = ui.GOOD if active else ui.ACCENT if cnt >= 2 else ui.DIM
+                ui.pill(surf, f"{cnt}/{req}" + (" ACTIVE" if active else ""), sbox.x + 26, sy + 14,
+                        ui.mix(col, ui.CARD, .7), col, size=18, anchor="midleft")
+                bonus = gd.format_stats(sb.get("stats"))
+                desc = sb.get("desc", "").replace("\n", " ")
+                detail = " · ".join(x for x in (bonus, desc) if x)
+                ui.text(surf, f"{sb['name']}" + (f"  —  {detail}" if detail else ""),
+                        (sbox.x + 178, sy + 14), 22, ui.TEXT if active else ui.DIM, "bold" if active else "semi",
+                        anchor="midleft", maxw=sbox.w - 204)
+                sy += 34
 
         box = pygame.Rect(area.right - 600, area.y, 600, area.h)
         info = self.list.current.data[2] if self.list.current else None
@@ -1181,6 +1240,8 @@ class FurnitureTab:
         if btn in (ui.UP, ui.DOWN):
             step = 1 if self.app.input.count.get(btn, 0) < 12 else 5
             self.list.move((-1 if btn == ui.UP else 1) * step)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-10 if btn == ui.LT else 10)
         elif btn in (ui.LEFT, ui.RIGHT):
             self.m = (self.m + (1 if btn == ui.RIGHT else -1)) % len(self.modes)
             self.list.sel = 0
@@ -1335,3 +1396,196 @@ class FurnitureTab:
         if mk.startswith("add:"):
             return [("A", "Add to Storage"), ("X", "Undo"), ("SELECT", "Search"), ("DPAD_LR", "Filter")]
         return [("X", "Remove"), ("SELECT", "Search"), ("DPAD_LR", "Room / Add"), ("B", "Clear" if self.query else "Saves")]
+
+
+# --------------------------------------------------------------------------- Level-Up Bonus Stats Screen
+
+class BonusStatsScreen:
+    """Edit a cat's level-up bonus stats (STR..LUCK) with live effective stat totals."""
+
+    def __init__(self, ui, cat_edit) -> None:
+        self.ui = ui
+        self.cat_edit = cat_edit
+        self.app = cat_edit.app
+        self.title = "Level-Up Bonuses"
+        self.list = ui.ListView(row_h=88, gap=10)
+        self.list.set_rows([ui.Row(s, data=s) for s in ui.STATS])
+
+    def on_enter(self) -> None:
+        pass
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        row = self.list.current
+        if btn in (ui.UP, ui.DOWN):
+            self.list.move(-1 if btn == ui.UP else 1)
+        elif btn in (ui.LEFT, ui.RIGHT) and row:
+            s = row.data
+            d = 1 if btn == ui.RIGHT else -1
+            cur = self.cat_edit.vals["level_bonuses"][s]
+            self.cat_edit.vals["level_bonuses"][s] = max(-20, min(99, cur + d))
+            self.cat_edit.commit_local()
+        elif btn == ui.X and row:
+            self.cat_edit.vals["level_bonuses"][row.data] = 0
+            self.cat_edit.commit_local()
+        elif btn == ui.START:
+            self.app.write()
+        elif btn == ui.B:
+            self.app.pop()
+
+    def click(self, pos) -> None:
+        i = self.list.hit(pos)
+        if i is not None:
+            self.list.sel = i
+
+    def _render_row(self, surf, r, row, selected: bool) -> None:
+        ui = self.ui
+        s = row.data
+        base = self.cat_edit.vals["stats"][s]
+        bonus = self.cat_edit.vals["level_bonuses"][s]
+        inj = 0 if self.cat_edit.vals["heal"] else self.cat_edit.cat["injury_mods"][s]
+        eff = max(1, base + bonus + inj)
+        ui.text(surf, s, (r.x + 30, r.centery), 34, ui.TEXT, "black", anchor="midleft")
+        ui.text(surf, f"Base {base}  {'+' if bonus >= 0 else ''}{bonus} bonus" + (f"  {inj} inj" if inj else "") + f"  =  {eff}",
+                (r.x + 170, r.centery), 24, ui.DIM, anchor="midleft")
+        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 200, r.centery), 11, "left")
+        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 38, r.centery), 11, "right")
+        col = ui.GOOD if bonus > 0 else ui.BAD if bonus < 0 else ui.TEXT
+        ui.text(surf, f"{'+' if bonus > 0 else ''}{bonus}", (r.right - 119, r.centery), 36, col, "black", anchor="center")
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        area = pygame.Rect(ui.PAD, ui.HEADER_H + 24, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 24)
+        la = pygame.Rect(area.x, area.y, area.w - 580, area.h)
+        self.list.draw(surf, la, self._render_row)
+
+        box = pygame.Rect(area.right - 540, area.y, 540, area.h)
+        ui.rrect(surf, box, ui.CARD, 24)
+        s = self.list.current.data if self.list.current else "STR"
+        x, y, w = box.x + 30, box.y + 30, box.w - 60
+        ui.text(surf, "LEVEL-UP BONUS STATS", (x, y), 18, ui.FAINT, "black")
+        ui.text(surf, s, (x, y + 34), 40, ui.ACCENT, "black")
+        for i, ln in enumerate(wrap_lines(ui.F(25), ui.STAT_INFO[s], w, max_lines=4)):
+            ui.text(surf, ln, (x, y + 96 + i * 32), 25, ui.TEXT)
+        note = "Level-up bonuses stack on top of base stats (1-7) without breaking breeding caps."
+        for i, ln in enumerate(wrap_lines(ui.F(22), note, w, max_lines=3)):
+            ui.text(surf, ln, (x, box.bottom - 108 + i * 28), 22, ui.DIM)
+
+    def hint_items(self):
+        return [("DPAD_LR", "Adjust"), ("X", "Zero"), ("B", "Done")] + self.ui.pending_hint(self.app)
+
+
+# --------------------------------------------------------------------------- Advanced Raw Properties & Unlocks Editor
+
+class PropertiesScreen:
+    """Search and edit all integer SQLite `properties` (Tink unlocks, boss countdown, weather, etc.)."""
+
+    def __init__(self, ui, app) -> None:
+        self.ui = ui
+        self.app = app
+        self.title = "Advanced Properties & Unlocks"
+        self.all_props = sf.raw_int_properties(app.save)
+        self.orig = dict(self.all_props)
+        self.query = ""
+        self.search_rect: pygame.Rect | None = None
+        self.list = ui.ListView(row_h=78, gap=8)
+        self._rebuild()
+
+    def on_enter(self) -> None:
+        self._rebuild()
+
+    def _filtered(self, q: str) -> list[tuple[str, int]]:
+        if not q:
+            return self.all_props
+        toks = q.lower().split()
+        return [(k, v) for k, v in self.all_props if all(t in k.lower() for t in toks)]
+
+    def _rebuild(self) -> None:
+        self.list.set_rows([self.ui.Row(k, data=(k, v)) for k, v in self._filtered(self.query)])
+
+    def _cur_val(self, k: str) -> int:
+        return self.app.pending.props.get(k, self.orig[k])
+
+    def _set_val(self, k: str, val: int) -> None:
+        if val == self.orig[k]:
+            self.app.pending.props.pop(k, None)
+        else:
+            self.app.pending.props[k] = val
+
+    def _open_search(self) -> None:
+        def done(q: str) -> None:
+            self.query = q
+            self.list.sel = 0
+            self._rebuild()
+        self.app.push(SearchModal(self.ui, self.app, "Search Properties", self.query,
+                                  lambda q: len(self._filtered(q)), done))
+
+    def handle(self, btn: str) -> None:
+        ui = self.ui
+        row = self.list.current
+        if btn in (ui.UP, ui.DOWN):
+            step = 1 if self.app.input.count.get(btn, 0) < 12 else 5
+            self.list.move((-1 if btn == ui.UP else 1) * step)
+        elif btn in (ui.LT, ui.RT):
+            self.list.move(-12 if btn == ui.LT else 12)
+        elif btn == ui.SELECT:
+            self._open_search()
+        elif btn in (ui.LEFT, ui.RIGHT) and row:
+            k = row.data[0]
+            d = (1 if btn == ui.RIGHT else -1) * self.app.input.mult(btn)
+            self._set_val(k, self._cur_val(k) + d)
+        elif btn == ui.A and row:
+            k = row.data[0]
+            cur = self._cur_val(k)
+            if cur in (0, 1):
+                self._set_val(k, 0 if cur else 1)
+            else:
+                self._set_val(k, cur + 1)
+        elif btn == ui.X and row:
+            self._set_val(row.data[0], 0)
+        elif btn == ui.START:
+            self.app.write()
+        elif btn == ui.B:
+            if self.query:
+                self.query = ""
+                self.list.sel = 0
+                self._rebuild()
+            else:
+                self.app.pop()
+
+    def click(self, pos) -> None:
+        if self.search_rect and self.search_rect.collidepoint(pos):
+            self._open_search()
+            return
+        i = self.list.hit(pos)
+        if i is not None:
+            if i == self.list.sel:
+                self.handle(self.ui.A)
+            self.list.sel = i
+
+    def _render_row(self, surf, r, row, selected: bool) -> None:
+        ui = self.ui
+        k = row.data[0]
+        val = self._cur_val(k)
+        changed = val != self.orig[k]
+        ui.text(surf, k, (r.x + 28, r.centery), 26, ui.ACCENT if changed else ui.TEXT, "bold",
+                anchor="midleft", maxw=r.w - 320)
+        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 220, r.centery), 10, "left")
+        ui.tri(surf, ui.DIM if selected else ui.LINE, (r.right - 36, r.centery), 10, "right")
+        ui.text(surf, f"{val:,}", (r.right - 128, r.centery), 30, ui.ACCENT if changed else ui.TEXT, "black", anchor="center")
+
+    def draw(self, surf) -> None:
+        ui = self.ui
+        area = pygame.Rect(ui.PAD, ui.HEADER_H + 18, ui.W - 2 * ui.PAD, ui.CONTENT_BOTTOM - ui.HEADER_H - 18)
+        ui.text(surf, f"{len(self.list.rows)} / {len(self.all_props)} integer properties  ·  A toggles 0/1 · Left/Right adjusts",
+                (area.x, area.y + 18), 23, ui.DIM, anchor="midleft")
+        self.search_rect = draw_search_pill(ui, surf, area.right - 20, area.y + 18, self.query, anchor="midright")
+        la = pygame.Rect(area.x, area.y + 54, area.w - 20, area.h - 54)
+        if not self.list.rows:
+            ui.text(surf, f'No properties matching "{self.query}"', (la.centerx, la.y + 100), 30, ui.FAINT, "bold", anchor="midtop")
+        else:
+            self.list.draw(surf, la, self._render_row)
+
+    def hint_items(self):
+        return [("A", "Toggle/Inc"), ("DPAD_LR", "Adjust"), ("X", "Zero"), ("SELECT", "Search"),
+                ("B", "Clear" if self.query else "Done")] + self.ui.pending_hint(self.app)

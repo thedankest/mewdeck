@@ -540,13 +540,16 @@ def _write_atomic(save: Path, data: bytes, was_wal: bool) -> None:
 class Changes:
     props: dict[str, int] = field(default_factory=dict)
     cats: dict[int, dict[str, Any]] = field(default_factory=dict)
+    room_moves: dict[int, str] = field(default_factory=dict)  # cat_key -> new house room
     # Inventory edits per container: 'storage' | 'backpack' | 'trash'
     inv_add: dict[str, list[str]] = field(default_factory=lambda: {"storage": [], "backpack": [], "trash": []})
     inv_remove: dict[str, list[int]] = field(default_factory=lambda: {"storage": [], "backpack": [], "trash": []})
+    inv_move: list[tuple[str, str, int]] = field(default_factory=list)  # (src_grp, dst_grp, instance_id)
     # Furniture edits: add furniture_id to unplaced storage; remove by SQLite row key
     furn_add: list[str] = field(default_factory=list)
     furn_remove: list[int] = field(default_factory=list)
     heal_all: bool = False
+    repair_all: bool = False
     steven: str | None = None
     guard: bool | None = None
     add_items: list[str] | None = None
@@ -557,22 +560,25 @@ class Changes:
             self.add_items = None
 
     def inv_total(self) -> int:
-        return sum(len(v) for v in self.inv_add.values()) + sum(len(v) for v in self.inv_remove.values())
+        return sum(len(v) for v in self.inv_add.values()) + sum(len(v) for v in self.inv_remove.values()) + len(self.inv_move)
 
     def empty(self) -> bool:
         return not (
-            self.props or self.cats or self.inv_total() or self.furn_add or self.furn_remove
-            or self.heal_all or self.steven or self.guard is not None
+            self.props or self.cats or self.room_moves or self.inv_total()
+            or self.furn_add or self.furn_remove
+            or self.heal_all or self.repair_all or self.steven or self.guard is not None
         )
 
     def count(self) -> int:
         return (
             len(self.props)
             + len(self.cats)
+            + len(self.room_moves)
             + self.inv_total()
             + len(self.furn_add)
             + len(self.furn_remove)
             + (1 if self.heal_all else 0)
+            + (1 if self.repair_all else 0)
             + (1 if self.steven else 0)
             + (1 if self.guard is not None else 0)
         )
@@ -635,28 +641,53 @@ def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path
             if ch.get("revive"):
                 revived_keys.append(cat_key)
 
-        # Add revived cats back into house_state (Attic)
-        if revived_keys:
+        # Update house_state for revived cats and room moves
+        if revived_keys or changes.room_moves:
             hs_row = conn.execute("SELECT data FROM files WHERE key='house_state'").fetchone()
             entries = cb.parse_house_state_full(hs_row[0]) if hs_row and hs_row[0] else []
-            existing = {e["key"] for e in entries}
+            by_key = {e["key"]: e for e in entries}
             for rk in revived_keys:
-                if rk not in existing:
-                    entries.append({"key": rk, "unk": 0, "room": "Attic", "pos": (0.0, 0.0, 0.0)})
+                if rk not in by_key:
+                    e = {"key": rk, "unk": 0, "room": "Attic", "pos": (0.0, 0.0, 0.0)}
+                    entries.append(e)
+                    by_key[rk] = e
+            for ck, new_room in changes.room_moves.items():
+                if ck in by_key:
+                    by_key[ck]["room"] = new_room
             conn.execute("UPDATE files SET data=? WHERE key='house_state'",
                          (sqlite3.Binary(cb.serialize_house_state_full(entries)),))
 
-        # 3. Inventory edits (storage, backpack, trash)
+        # 3. Inventory edits (storage, backpack, trash: move + remove + add + repair_all)
         file_map = {"storage": "inventory_storage", "backpack": "inventory_backpack", "trash": "inventory_trash"}
-        for grp, file_key in file_map.items():
+        loaded_inv: dict[str, list[dict[str, Any]]] = {}
+        dirty_inv: set[str] = set()
+
+        def _get_inv(g: str) -> list[dict[str, Any]]:
+            if g not in loaded_inv:
+                r = conn.execute("SELECT data FROM files WHERE key=?", (file_map[g],)).fetchone()
+                loaded_inv[g] = cb.parse_inventory_blob(r[0]) if r and r[0] is not None else []
+            return loaded_inv[g]
+
+        # Moves first (preserving exact item metadata)
+        for src_g, dst_g, inst_id in changes.inv_move:
+            if src_g == dst_g:
+                continue
+            s_list = _get_inv(src_g)
+            found = next((it for it in s_list if int(it["instance_id"]) == int(inst_id)), None)
+            if found is not None:
+                s_list.remove(found)
+                _get_inv(dst_g).append(found)
+                dirty_inv.update((src_g, dst_g))
+
+        for grp in ("storage", "backpack", "trash"):
             adds = changes.inv_add.get(grp, [])
             rems = set(changes.inv_remove.get(grp, []))
-            if not adds and not rems:
+            if not adds and not rems and not changes.repair_all:
                 continue
-            row = conn.execute("SELECT data FROM files WHERE key=?", (file_key,)).fetchone()
-            items = cb.parse_inventory_blob(row[0]) if row and row[0] is not None else []
+            items = _get_inv(grp)
             if rems:
-                items = [it for it in items if int(it["instance_id"]) not in rems]
+                items[:] = [it for it in items if int(it["instance_id"]) not in rems]
+                dirty_inv.add(grp)
             for iid in adds:
                 items.append({
                     "item_id": iid,
@@ -671,7 +702,17 @@ def apply_changes(save: Path, changes: Changes, *, reason: str = "edit") -> Path
                     "flags": 0,
                 })
                 next_seq += 1
-            blob_out = sqlite3.Binary(cb.serialize_inventory_blob(items))
+                dirty_inv.add(grp)
+            if changes.repair_all and grp != "trash":
+                for it in items:
+                    it["field_a"] = _default_item_charges(it["item_id"])
+                    it["field_b"] = 0
+                dirty_inv.add(grp)
+
+        for grp in dirty_inv:
+            file_key = file_map[grp]
+            row = conn.execute("SELECT 1 FROM files WHERE key=?", (file_key,)).fetchone()
+            blob_out = sqlite3.Binary(cb.serialize_inventory_blob(loaded_inv[grp]))
             if row is None:
                 conn.execute("INSERT INTO files (key, data) VALUES (?, ?)", (file_key, blob_out))
             else:
@@ -760,13 +801,23 @@ def verify(before: dict[str, Any], after: dict[str, Any], changes: Changes) -> N
             if c["injured"] or c["wounded"]:
                 raise RuntimeError(f"verification failed: cat {c['name']} still injured after heal_all")
 
+    for ck, want_room in changes.room_moves.items():
+        if a_all.get(ck, {}).get("room") != want_room:
+            raise RuntimeError(f"verification failed: cat {ck} room mismatch")
+
     for k, v in changes.props.items():
-        bk = "save_percent" if k == "save_file_percent" else k
-        if after["basic"].get(bk) != v:
+        bk = "save_file_percent" if k == "save_file_percent" else k
+        if bk in after["basic"] and after["basic"].get(bk) != v:
             raise RuntimeError(f"verification failed: property {k} mismatch")
 
+    move_delta = {"storage": 0, "backpack": 0, "trash": 0}
+    for src_g, dst_g, _ in changes.inv_move:
+        if src_g != dst_g:
+            move_delta[src_g] -= 1
+            move_delta[dst_g] += 1
     for grp in ("storage", "backpack", "trash"):
-        exp = len(before["items"][grp]) + len(changes.inv_add.get(grp, [])) - len(set(changes.inv_remove.get(grp, [])))
+        exp = (len(before["items"][grp]) + len(changes.inv_add.get(grp, []))
+               - len(set(changes.inv_remove.get(grp, []))) + move_delta[grp])
         if len(after["items"][grp]) != exp:
             raise RuntimeError(f"verification failed: {grp} item count mismatch")
 
@@ -821,6 +872,50 @@ def snapshot(path: Path) -> Snapshot:
     st = steven_status(conn, dejavu_cats=dejavu)
     conn.close()
     return Snapshot(path=path, parsed=parsed, steven=st, mtime=path.stat().st_mtime)
+
+
+def raw_int_properties(path: Path) -> list[tuple[str, int]]:
+    """All integer-valued rows from the SQLite `properties` table, sorted by key."""
+    conn = load(path)
+    try:
+        out: list[tuple[str, int]] = []
+        for k, raw in conn.execute("SELECT key, data FROM properties ORDER BY key"):
+            v = _decode_int(raw)
+            if v is not None:
+                out.append((str(k), int(v)))
+        return out
+    finally:
+        conn.close()
+
+
+def check_integrity(path: Path) -> tuple[bool, list[str]]:
+    """Run SQLite PRAGMA integrity_check + full deterministic cat/inventory/furniture parse check."""
+    notes: list[str] = []
+    ok = True
+    try:
+        data, was_wal = read_bytes(path)
+        conn = open_memory(data)
+        try:
+            ic = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            notes.append(f"SQLite integrity: {ic}" + (" (WAL)" if was_wal else ""))
+            if ic != "ok":
+                ok = False
+        finally:
+            conn.close()
+        parsed = parse_save(data)
+        errs = parsed["_debug"]["parse_errors"]
+        notes.append(f"Cats parsed: {len(parsed['all_cats'])} ({parsed['total_cats']} active, {parsed['total_graveyard']} graveyard)")
+        notes.append(f"Items: {len(parsed['items']['storage'])} Home · {len(parsed['items']['backpack'])} Adventure · {len(parsed['items']['trash'])} Trash")
+        notes.append(f"Furniture: {parsed['total_furniture']} across {len(parsed['rooms'])} rooms")
+        if errs:
+            ok = False
+            notes.append(f"Parse warnings: {len(errs)} ({errs[0]})")
+        else:
+            notes.append("Zero parse errors — save is 100% healthy.")
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        notes.append(f"Check failed: {e}")
+    return ok, notes
 
 
 def cat_change_base(snap: Snapshot, cat: dict[str, Any]) -> dict[str, Any]:

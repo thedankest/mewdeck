@@ -197,59 +197,74 @@ def signed_mut_id(val: int | None) -> int:
     return val - 0x100000000 if val >= 0x80000000 else val
 
 
+def _clean_mut_name(category: str, mid: int, rec: dict[str, Any] | None) -> str:
+    raw = (rec or {}).get("name") or ""
+    if raw and not raw.startswith("#"):
+        return raw.split("(")[0].strip().title() if "(" in raw else raw
+    if mid == -2:
+        return f"No {category.title()}"
+    st = format_stats((rec or {}).get("stats"))
+    if st:
+        return st.replace("  ·  ", " / ")
+    return f"{category.title()} Mutation #{mid}"
+
+
+def _merged_missing_record(cat_db: dict[str, Any], category: str) -> dict[str, Any]:
+    r2 = cat_db.get("2") if isinstance(cat_db.get("2"), dict) else {}
+    rm2 = cat_db.get("-2") if isinstance(cat_db.get("-2"), dict) else {}
+    name = _clean_mut_name(category, -2, r2 if (r2.get("name") and not str(r2["name"]).startswith("#")) else rm2)
+    desc = rm2.get("desc") or r2.get("desc") or "Birth defect (missing body part)."
+    stats = rm2.get("stats") or r2.get("stats") or {}
+    return {"id": -2, "name": name, "desc": desc, "stats": stats, "tag": "birth_defect", "is_mutation": True}
+
+
 def mutation_info(category: str, raw_id: int | None) -> dict[str, Any]:
     """Resolve a mutation slot ID to its unobfuscated name, description, and stats."""
     sid = signed_mut_id(raw_id)
+    cat_db = mutations().get(category, {})
     if sid <= 0:
         if sid == -2:
-            cat_db = mutations().get(category, {})
-            # In michael-trinity mutations.json, missing parts are keyed under "2" or "-2" with tag birth_defect
-            for key in ("-2", "2"):
-                rec = cat_db.get(key)
-                if rec and rec.get("tag") == "birth_defect":
-                    return {"id": -2, "name": rec["name"], "desc": rec.get("desc", ""), "stats": rec.get("stats", {}),
-                            "tag": "birth_defect", "is_mutation": True}
-            return {"id": -2, "name": f"Missing {category}", "desc": "Birth defect (missing part).",
-                    "stats": {}, "tag": "birth_defect", "is_mutation": True}
+            return _merged_missing_record(cat_db, category)
         return {"id": 0, "name": "Normal (none)", "desc": "", "stats": {}, "is_mutation": False}
-    cat_db = mutations().get(category, {})
     rec = cat_db.get(str(sid))
-    if rec and sid >= 300:
-        return {"id": sid, "name": rec["name"], "desc": rec.get("desc", ""), "stats": rec.get("stats", {}),
-                "tag": rec.get("tag"), "is_mutation": True}
     if sid >= 300:
-        return {"id": sid, "name": f"Mutation #{sid}", "desc": "", "stats": {}, "is_mutation": True}
+        name = _clean_mut_name(category, sid, rec)
+        return {
+            "id": sid,
+            "name": name,
+            "desc": (rec or {}).get("desc", ""),
+            "stats": (rec or {}).get("stats", {}),
+            "tag": (rec or {}).get("tag"),
+            "is_mutation": True,
+        }
     return {"id": sid, "name": f"Normal (#{sid})", "desc": "Default non-mutated appearance.", "stats": {},
             "is_mutation": False}
 
 
 def mutations_for_category(category: str) -> list[dict[str, Any]]:
-    """All selectable mutations/birth defects for a body part or fur texture, sorted by ID."""
+    """All selectable mutations/birth defects for a body part or fur texture, sorted cleanly."""
     cat_db = mutations().get(category, {})
     out: list[dict[str, Any]] = []
+    seen_missing = False
     for k, rec in cat_db.items():
         if not k.lstrip("-").isdigit():
             continue
         mid = int(k)
-        # Skip raw normal appearance IDs (< 300) unless it's a birth defect (-2 / key "2" with birth_defect)
         if mid < 300:
-            if rec.get("tag") == "birth_defect":
-                out.append({
-                    "id": -2,
-                    "raw_id": 0xFFFFFFFE,
-                    "name": rec["name"],
-                    "desc": rec.get("desc", ""),
-                    "stats": rec.get("stats", {}),
-                    "tag": "birth_defect",
-                })
+            if rec.get("tag") == "birth_defect" and not seen_missing:
+                seen_missing = True
+                m = _merged_missing_record(cat_db, category)
+                m["raw_id"] = 0xFFFFFFFE
+                out.append(m)
             continue
+        name = _clean_mut_name(category, mid, rec)
         out.append({
             "id": mid,
             "raw_id": mid,
-            "name": rec["name"],
+            "name": name,
             "desc": rec.get("desc", ""),
             "stats": rec.get("stats", {}),
             "tag": rec.get("tag"),
         })
-    out.sort(key=lambda x: (x.get("tag") == "birth_defect", x["name"].lower()))
+    out.sort(key=lambda x: (x.get("tag") == "birth_defect", x["name"].startswith(("+", "-")), x["name"].lower()))
     return out

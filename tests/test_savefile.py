@@ -200,6 +200,42 @@ def test_real_save_full_editors_and_heal_all():
     assert s2.parsed["all_cats"][adv_cat["key"]]["equipment"]["trinket"]["item_id"] == "RatTail"
 
 
+def test_real_save_v12_features():
+    from mewdeck import gamedata as gd
+    p = _real()
+    if not p:
+        return
+    ok, notes = sf.check_integrity(p)
+    assert ok, notes
+    props = sf.raw_int_properties(p)
+    assert len(props) > 50
+
+    snap = sf.snapshot(p)
+    # Zero raw '#' mutation names on active cats
+    for c in snap.parsed["cats"]:
+        for k, v in c["mutations"].items():
+            cat = "texture" if k == "coat" else gd.MUTATION_SLOT_BY_KEY[k][1]
+            info = gd.mutation_info(cat, v)
+            assert not info["name"].startswith("#"), (k, v, info)
+
+    house_cat = next(c for c in snap.parsed["cats"] if c["room"] not in ("", "(ADVENTURE)"))
+    other_room = next(r for r in snap.parsed["rooms"] if r != house_cat["room"])
+    stor_item = snap.parsed["items"]["storage"][0]
+    ch = sf.Changes(
+        cats={house_cat["key"]: {"name": "Sir Whiskers the Great", "level_bonuses": {k: 2 for k in house_cat["stats"]}}},
+        room_moves={house_cat["key"]: other_room},
+        inv_move=[("storage", "backpack", int(stor_item["instance_id"]))],
+        repair_all=True,
+    )
+    sf.apply_changes(p, ch, reason="v12-test")
+    s2 = sf.snapshot(p)
+    c2 = s2.parsed["all_cats"][house_cat["key"]]
+    assert c2["name"] == "Sir Whiskers the Great"
+    assert c2["room"] == other_room
+    assert c2["level_bonuses"]["STR"] == 2
+    assert any(int(x["instance_id"]) == int(stor_item["instance_id"]) for x in s2.parsed["items"]["backpack"])
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
