@@ -50,22 +50,12 @@ do_install() {
   echo "70"
   echo "# Creating desktop icon & app menu entry…"
   mkdir -p "$(dirname "$ICON")" "$DATA/applications"
-  "$DATA/mewdeck/venv/bin/python" - "$ICON" <<'PY'
-import os, sys
-os.environ["SDL_VIDEODRIVER"] = "dummy"
+  PYTHONPATH="$APP" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$DATA/mewdeck/venv/bin/python" - "$ICON" <<'PY' || cp "$SRC/docs/icon.png" "$ICON" 2>/dev/null || true
+import sys
 import pygame
-pygame.init()
-s = pygame.Surface((256, 256), pygame.SRCALPHA)
-pygame.draw.rect(s, (38, 32, 48), (0, 0, 256, 256), border_radius=52)
-pygame.draw.rect(s, (255, 180, 76), (0, 0, 256, 256), width=6, border_radius=52)
-o = (255, 180, 76)
-pygame.draw.polygon(s, o, [(48, 110), (70, 36), (112, 84)])
-pygame.draw.polygon(s, o, [(208, 110), (186, 36), (144, 84)])
-pygame.draw.ellipse(s, o, (40, 70, 176, 150))
-for x in (92, 164):
-    pygame.draw.ellipse(s, (20, 16, 26), (x - 14, 120, 28, 36))
-pygame.draw.polygon(s, (20, 16, 26), [(118, 172), (138, 172), (128, 184)])
-pygame.image.save(s, sys.argv[1])
+from mewdeck.branding import draw_app_icon
+pygame.font.init()
+pygame.image.save(draw_app_icon(256), sys.argv[1])
 PY
   cat >"$DESKTOP" <<DESK
 [Desktop Entry]

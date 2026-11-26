@@ -201,88 +201,139 @@ def start_steam() -> None:
 def _draw_art_surfaces() -> dict[str, Any]:
     """Render all 5 MewDeck Steam library images in memory once (safe headless or in-process)."""
     import pygame
-    from . import ui
 
     if not pygame.get_init():
         # Force dummy video/audio in standalone CLI runs so Gamescope/Wayland env vars never block
-        os.environ["SDL_VIDEODRIVER"] = "dummy"
-        os.environ["SDL_AUDIODRIVER"] = "dummy"
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+    if not pygame.font.get_init():
         pygame.font.init()
-    elif not pygame.font.get_init():
-        pygame.font.init()
-    if getattr(ui, "F", None) is None:
-        ui.F = ui.Fonts()
+    from . import branding as b
 
-    def canvas(w: int, h: int, gx: float = 0.82, gy: float = 0.15, gr: int | None = None) -> pygame.Surface:
-        s = pygame.Surface((w, h))
-        for y in range(h):
-            pygame.draw.line(s, ui.mix(ui.BG_TOP, ui.BG_BOT, y / h), (0, y), (w, y))
-        # Subtle sketchbook grid matching MewDeck v1.5
-        grid_col = ui.mix(ui.BG_TOP, ui.LINE, 0.24)
-        for gx_i in range(0, w, 44):
-            pygame.draw.line(s, grid_col, (gx_i, 0), (gx_i, h), 1)
-        for gy_i in range(0, h, 44):
-            pygame.draw.line(s, grid_col, (0, gy_i), (w, gy_i), 1)
-        n = 48
-        small = pygame.Surface((n, n), pygame.SRCALPHA)
-        for yy in range(n):
-            for xx in range(n):
-                d = math.hypot(xx - n / 2 + 0.5, yy - n / 2 + 0.5) / (n / 2)
-                small.set_at((xx, yy), (*ui.ACCENT, int(max(0.0, 1 - d) ** 2 * 64)))
-        rad = gr or int(max(w, h) * 0.9)
-        glow = pygame.transform.smoothscale(small, (rad * 2, rad * 2))
-        s.blit(glow, (int(w * gx) - rad, int(h * gy) - rad))
-        return s
+    def tags(surf, spots, alpha):
+        """Scatter official class collar-tag sprites as faint sketchbook stickers."""
+        for name, x, y, size, ang in spots:
+            img = b.class_tag(name, size, ang)
+            if img is None:
+                continue
+            img = img.copy()
+            img.set_alpha(alpha)
+            surf.blit(img, img.get_rect(center=(x, y)))
+
+    def sticker(surf, name, x, y, size, ang):
+        """Bold class tag with an ink drop shadow (foreground decoration)."""
+        img = b.class_tag(name, size, ang)
+        if img is None:
+            return
+        sh = img.copy()
+        sh.fill((*b.INK, 150), special_flags=pygame.BLEND_RGBA_MULT)
+        r = img.get_rect(center=(x, y))
+        surf.blit(sh, r.move(max(3, size // 18), max(4, size // 14)))
+        surf.blit(img, r)
+
+    def subtitle(text, size, color=b.DIM):
+        return b.inked_text(text, size, color, "black", max(2, size // 9), b.INK, (0, max(2, size // 10)), size * 0.16)
+
+    def rule(surf, cx, cy, half, gapw):
+        for sx in (-1, 1):
+            x0, x1 = cx + sx * gapw, cx + sx * (gapw + half)
+            pygame.draw.line(surf, b.INK, (x0, cy + 3), (x1, cy + 3), 5)
+            pygame.draw.line(surf, b.ACCENT, (x0, cy), (x1, cy), 4)
+            d = cx + sx * (gapw + half + 10)
+            pygame.draw.polygon(surf, b.ACCENT, [(d, cy - 7), (d + 7, cy), (d, cy + 7), (d - 7, cy)])
+
+    def fit_wordmark(maxw, size, **kw):
+        while size > 40 and b.wordmark(size, **kw).get_width() > maxw:
+            size -= 2
+        return b.wordmark(size, **kw)
+
+    def scallop_strip(surf, top, h, color=b.ACCENT, bump=18):
+        w = surf.get_width()
+        pygame.draw.rect(surf, b.INK, (0, top - 6, w, h + 6))
+        for x in range(-bump, w + bump, bump * 2):
+            pygame.draw.circle(surf, b.INK, (x + bump, top), bump + 6)
+        pygame.draw.rect(surf, color, (0, top, w, h))
+        for x in range(-bump, w + bump, bump * 2):
+            pygame.draw.circle(surf, color, (x + bump, top), bump)
+        hi = b.mix(color, b.CREAM, 0.45)
+        for x in range(-bump, w + bump, bump * 2):
+            pygame.draw.arc(surf, hi, (x + 4, top - bump + 4, bump * 2 - 8, bump * 2 - 8), math.radians(60), math.radians(150), 3)
 
     out: dict[str, Any] = {}
 
     # 1. Portrait capsule 600x900 (<appid>p.png) — Big Picture & Library main tile
-    s = canvas(600, 900, gx=0.5, gy=0.34, gr=460)
-    pygame.draw.circle(s, ui.INK, (300, 336), 204)
-    pygame.draw.circle(s, ui.mix(ui.CARD_HI, ui.ACCENT, 0.18), (300, 330), 196)
-    pygame.draw.circle(s, ui.ACCENT, (300, 330), 196, 6)
-    ui.icon_cat(s, 300, 344, 152)
-    ui.text(s, "MewDeck", (304, 614), 104, ui.INK, "black", anchor="center")
-    ui.text(s, "MewDeck", (300, 610), 104, ui.TEXT, "black", anchor="center")
-    ui.text(s, "Mewgenics Save Editor", (300, 690), 34, ui.ACCENT, "black", anchor="center")
-    ui.pill(s, "GAMEPAD READY · STEAM DECK", 300, 778, ui.CARD_HI, ui.DIM, size=21, anchor="center")
+    s = b.sketch_canvas(600, 900, seed=11)
+    b.glow(s, 300, 330, 430, b.ACCENT, 80)
+    tags(s, [("Mage", 70, 92, 84, 14), ("Fighter", 536, 120, 80, -12), ("Necromancer", 58, 520, 76, -8),
+             ("Druid", 548, 500, 78, 10), ("Jester", 548, 762, 58, -16), ("Thief", 52, 764, 58, 12)], 70)
+    for i, (x, y) in enumerate(((120, 250), (150, 200), (452, 250), (480, 200))):
+        b.draw_paw(s, x, y, 11, (*b.LINE, 70), 20 if x < 300 else -20)
+    b.draw_badge(s, 300, 318, 214, 132)
+    b.blit_anchored(s, b.wordmark(116), (300, 612))
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 27, b.TEXT), (300, 696))
+    rule(s, 300, 742, 70, 40)
+    b.draw_cat_emblem(s, 300, 742, 15, detailed=False)
+    scallop_strip(s, 806, 94)
+    b.blit_anchored(s, b.inked_text("STEAM DECK  ·  GAMEPAD READY", 23, b.INK, "black", 0, b.INK, (0, 0), 2.5), (300, 856))
+    for x in (34, 566):
+        b.draw_paw(s, x, 858, 11, (*b.INK, 200))
     out["p.png"] = s
 
     # 2. Wide / recent capsule 920x430 (<appid>.png) — Home "Most Recent" tile
-    s = canvas(920, 430, gx=0.26, gy=0.5, gr=380)
-    pygame.draw.circle(s, ui.INK, (210, 220), 150)
-    pygame.draw.circle(s, ui.mix(ui.CARD_HI, ui.ACCENT, 0.18), (210, 215), 144)
-    pygame.draw.circle(s, ui.ACCENT, (210, 215), 144, 5)
-    ui.icon_cat(s, 210, 226, 112)
-    ui.text(s, "MewDeck", (396, 178), 102, ui.INK, "black", anchor="midleft")
-    ui.text(s, "MewDeck", (392, 174), 102, ui.TEXT, "black", anchor="midleft")
-    ui.text(s, "Mewgenics Save Editor", (396, 256), 36, ui.ACCENT, "black", anchor="midleft")
-    ui.pill(s, "STEVEN RESET · BREEDING · ITEMS", 396, 318, ui.CARD_HI, ui.DIM, size=20, anchor="midleft")
+    s = b.sketch_canvas(920, 430, seed=12)
+    b.glow(s, 215, 205, 330, b.ACCENT, 85)
+    b.glow(s, 640, 180, 360, b.ACCENT, 26)
+    tags(s, [("Mage", 868, 64, 72, -12), ("Necromancer", 860, 360, 66, 10), ("Hunter", 440, 50, 54, 8)], 55)
+    b.draw_badge(s, 212, 206, 162, 100)
+    b.blit_anchored(s, fit_wordmark(486, 112), (402, 160), "midleft")
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 24, b.TEXT), (414, 244), "midleft")
+    x = 440
+    for name in ("Fighter", "Mage", "Hunter", "Necromancer", "Druid", "Thief", "Jester"):
+        sticker(s, name, x, 322, 58, 0)
+        x += 68
+    pygame.draw.rect(s, b.INK, (0, 410, 920, 20))
+    pygame.draw.rect(s, b.ACCENT, (0, 414, 920, 16))
     out[".png"] = s
 
-    # 3. Hero banner 1920x620 (<appid>_hero.png — no text; Steam overlays the logo)
-    s = canvas(1920, 620, gx=0.78, gy=0.35, gr=760)
-    for i, (x, y, r) in enumerate(((1520, 310, 210), (1180, 470, 115), (1760, 140, 90), (260, 180, 100))):
-        ui.icon_cat(s, x, y, r, ui.mix(ui.ACCENT, ui.BG_TOP, 0.54 + i * 0.08), ui.mix(ui.BG_TOP, ui.BG_BOT, 0.5))
+    # 3. Hero banner 1920x620 (<appid>_hero.png — no text; Steam overlays the logo bottom-left)
+    s = b.sketch_canvas(1920, 620, seed=13, grid=48)
+    b.glow(s, 1460, 300, 720, b.ACCENT, 95)
+    tags(s, [("Tank", 960, 96, 84, 12), ("Medic", 1020, 300, 76, -10), ("Psychic", 1870, 560, 80, 14),
+             ("Monk", 1880, 64, 70, -8), ("Colorless", 840, 470, 70, 6)], 60)
+    for i in range(7):  # paw trail walking toward the badge
+        x = 880 + i * 78
+        y = 560 - i * 22 + (14 if i % 2 else -14)
+        b.draw_paw(s, x, y, 13, (*b.mix(b.LINE, b.ACCENT, 0.3), 70 + i * 12), -70)
+    cx, cy = 1460, 300
+    orbit = [("Fighter", -160), ("Mage", -120), ("Hunter", -80), ("Necromancer", -40), ("Druid", 0),
+             ("Thief", 40), ("Jester", 80), ("Tinkerer", 120), ("Butcher", 160)]
+    for name, deg in orbit:
+        a = math.radians(deg)
+        sticker(s, name, round(cx + math.cos(a) * 345), round(cy + math.sin(a) * 250), 92, -deg / 8)
+    b.draw_badge(s, cx, cy, 236, 146)
+    # left dark zone so Steam's bottom-left logo pops
+    ramp = pygame.Surface((256, 1), pygame.SRCALPHA)
+    for i in range(256):
+        ramp.set_at((i, 0), (*b.INK, int(215 * (1 - i / 255) ** 1.6)))
+    s.blit(pygame.transform.smoothscale(ramp, (1050, 620)), (0, 0))
+    floor = pygame.Surface((1, 64), pygame.SRCALPHA)
+    for i in range(64):
+        floor.set_at((0, i), (*b.INK, int(140 * (i / 63) ** 2)))
+    s.blit(pygame.transform.smoothscale(floor, (1920, 260)), (0, 360))
     out["_hero.png"] = s
 
     # 4. Transparent logo 800x260 (<appid>_logo.png + <appid>_logo.json)
     s = pygame.Surface((800, 260), pygame.SRCALPHA)
-    ui.icon_cat(s, 116, 138, 92)
-    ui.text(s, "MewDeck", (245, 107), 116, ui.INK, "black", anchor="midleft")
-    ui.text(s, "MewDeck", (240, 102), 116, ui.TEXT, "black", anchor="midleft")
-    ui.text(s, "Mewgenics Save Editor", (244, 194), 38, ui.ACCENT, "black", anchor="midleft")
+    b.draw_cat_emblem(s, 122, 138, 88)
+    b.blit_anchored(s, fit_wordmark(552, 124, outline=9, shadow=7), (232, 108), "midleft")
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 30, b.TEXT), (244, 198), "midleft")
     out["_logo.png"] = s
     out["_logo.json"] = json.dumps(
         {"logoPosition": {"pinnedPosition": "BottomLeft", "widthPct": 44, "heightPct": 50}}
     )
 
     # 5. Icon 256x256 (<appid>_icon.png)
-    s = pygame.Surface((256, 256), pygame.SRCALPHA)
-    pygame.draw.rect(s, ui.CARD, (0, 0, 256, 256), border_radius=52)
-    pygame.draw.rect(s, ui.ACCENT, (0, 0, 256, 256), width=7, border_radius=52)
-    ui.icon_cat(s, 128, 138, 92)
-    out["_icon.png"] = s
+    out["_icon.png"] = b.draw_app_icon(256)
     return out
 
 

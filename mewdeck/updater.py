@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.5.1"
+VERSION = "1.6.0"
 REPO = "thedankest/mewdeck"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 UA = f"MewDeck/{VERSION}"

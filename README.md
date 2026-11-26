@@ -6,7 +6,7 @@
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
-[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.5.1)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
+[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.6)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
 [![Platform](https://img.shields.io/badge/Linux-Bazzite%20%7C%20SteamOS-70acff?style=for-the-badge&logo=linux&logoColor=14101a)](#one-click-install-on-bazzite--steamos)
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
@@ -36,18 +36,18 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/cats.png" alt="Home & Adventure Cats" /><br />
-      <sub><b>Home & Adventure Cats</b> — Class Collar icons, Sex/Sort filters, CoI% badges & Graveyard revive</sub>
+      <img src="docs/screenshots/cats.png" alt="Home & Adventure Cats with In-Game Stat Icons" /><br />
+      <sub><b>Home & Adventure Cats</b> — Official in-game stat sticker trays, Sex/Sort filters, CoI% & Graveyard revive</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/breeding.png" alt="Cat Organizer & Breeding Helper" /><br />
-      <sub><b>Cat Organizer & Breeding Helper</b> — Room Optimizer Plan Summary, ENS pairs, CoI% & 1-press apply</sub>
+      <sub><b>Cat Organizer & Breeding Helper</b> — Instant memoized Room Optimizer, ENS pairs, CoI% & 1-press apply</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/items.png" alt="Items, Wiki Icons & Armor Set Bonuses" /><br />
-      <sub><b>Items & Wiki Icons (989 Sprites)</b> — Home/Adventure transfer, filters, sorting & Set Bonuses</sub>
+      <img src="docs/screenshots/items.png" alt="Armor Sets Overview & Item Icons" /><br />
+      <sub><b>Armor Sets Overview & Items (989 Sprites)</b> — Live set ownership progress, piece breakdown & 1-press add missing pieces</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/furniture.png" alt="Furniture & Live Room Totals" /><br />
@@ -95,12 +95,12 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Area | What MewDeck can do |
 | :--- | :--- |
-| **In-Game Sketchbook UI & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook-and-cardboard aesthetic with **3,694 offline wiki sprites** across **Items (989)**, **Abilities & Passives (1,913)**, **Disorders (125)**, **Furniture (633)**, **14 Class Collars**, and **20 official Stat & UI SVGs** — plus toggleable cozy UI sound effects. |
-| **Separate Home & Adventure Tabs** | Cleanly separated **Home** (House Gold/Food, Collars, Storage, Heal All, Repair Gear, Strip Defects, Unlocks, Properties) and **Adventure** (Steven Save-Scum Watch, Auto-block, Party Fixes, Adv Coins/Food/Boxes, Live 4-Cat Party roster & Backpack jump) tabs with SVG icons. |
+| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic, custom notched-ear tabby emblem & full Steam Big Picture artwork, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs** everywhere), and LRU-cached sub-3 ms/frame rendering for instant handheld feel. |
+| **Separate Home & Adventure Tabs** | Cleanly separated **Home** (House Gold/Food, Collars, Storage, Heal All, Repair Gear, Strip Defects, Unlocks, Properties, Refresh Steam Artwork) and **Adventure** (Steven Save-Scum Watch, Auto-block, Party Fixes, Adv Coins/Food/Boxes, Live 4-Cat Party roster & Backpack jump) tabs. |
 | **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer. |
-| **Cat Organizer & Breeding Helper** | Built-in **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
-| **Cat Editor, Interactive Cards & Gear Mini-Bar** | Hoverable / gamepad-inspectable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar** with live tooltip previews (click/`A` to edit that exact slot), **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses**, Mutations (L↔R mirror), and Class Collars. |
-| **Items, Furniture, Cloning & Self-Updater** | Browse, sort, filter, and move items **Home ↔ Adventure**, inspect **101 Armor Set Bonuses** and **633 Furniture** items with live room totals, **Clone Save Slots** (`X` on Save Picker), and **update MewDeck right inside Game Mode**. |
+| **Cat Organizer & Breeding Helper** | Instant memoized **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
+| **Cat Editor, Interactive Cards & Gear Mini-Bar** | Hoverable / gamepad-inspectable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar** with live tooltip previews (click/`A` to edit that exact slot), **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses** (with live Effective Stats tray), Mutations, and Class Collars. |
+| **Armor Sets Overview, Items, Furniture & Self-Updater** | Dedicated **Armor Sets** overview tracking live piece ownership across Home/Adventure/Cats with **1-press Add Missing Pieces**, Home ↔ Adventure item transfer with icon stat deltas, **633 Furniture** items with live room totals, **Clone Save Slots**, and **in-app updates** right inside Game Mode. |
 
 ---
 

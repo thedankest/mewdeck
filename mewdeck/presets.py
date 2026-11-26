@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -105,6 +106,7 @@ def snapshot_cat_as_preset(vals: dict[str, Any], name: str) -> dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=1)
 def armor_sets_catalog() -> list[dict[str, Any]]:
     """Return all armor sets paired with their matching equippable items by slot."""
     sb_map = gd.set_bonuses()
@@ -141,3 +143,9 @@ def armor_sets_catalog() -> list[dict[str, Any]]:
         })
     out.sort(key=lambda x: x["name"].lower())
     return out
+
+
+@lru_cache(maxsize=1)
+def armor_sets_by_id() -> dict[str, dict[str, Any]]:
+    """Fast O(1) lookup of catalog armor set objects by set ID."""
+    return {s["id"]: s for s in armor_sets_catalog()}

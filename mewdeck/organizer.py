@@ -57,9 +57,9 @@ def draw_pair_simulator(ui, surf: pygame.Surface, box: pygame.Rect, pe: br.PairE
     for s in br.STAT_NAMES:
         va, vb = a["stats"][s], b["stats"][s]
         ev = pe.expected_stats[s]
-        ico = ed.get_sprite("ui", s, 24)
+        ico = ed.get_stat_icon(s, 28)
         if ico is not None:
-            surf.blit(ico, ico.get_rect(midleft=(x, y + 12)))
+            surf.blit(ico, ico.get_rect(midleft=(x - 2, y + 12)))
         ui.text(surf, s, (x + 30, y + 12), 20, ui.TEXT, "black", anchor="midleft")
         ui.text(surf, f"{va} / {vb}", (x + 128, y + 12), 21, ui.DIM, "bold", anchor="midleft")
         bar_x = x + 220
@@ -110,7 +110,7 @@ class PartnerDetailScreen:
         self.stimulation = stimulation
         self.goal_idx = goal_idx
         self.title = f"Partners for {cat['name'] or '#' + str(cat['key'])}"
-        self.list = ui.ListView(row_h=92, gap=10)
+        self.list = ui.ListView(row_h=100, gap=10)
         self.rebuild()
 
     def on_enter(self) -> None:
@@ -240,7 +240,9 @@ class BreedingTab:
         self.result: br.OptimizationResult | None = None
         self.top_pairs: list[br.PairEval] = []
         self.best_stim: float = 0.0
-        self.list = ui.ListView(row_h=92, gap=10)
+        self._opt_key: tuple | None = None
+        self._opt_snap: Any = None
+        self.list = ui.ListView(row_h=100, gap=10)
         self.chip_rects: list[tuple[pygame.Rect, int]] = []
         self.goal_rect: pygame.Rect | None = None
         self.search_rect: pygame.Rect | None = None
@@ -257,7 +259,18 @@ class BreedingTab:
         self._rebuild()
 
     def _run_optimizer(self) -> None:
-        p = self.app.snap.parsed
+        snap = self.app.snap
+        key = (
+            id(snap),
+            self.goal_idx,
+            self.seed,
+            tuple((s.name, s.role, s.max_cats) for s in self.specs),
+        )
+        if key == self._opt_key and self._opt_snap is snap and self.result is not None:
+            return
+        self._opt_key = key
+        self._opt_snap = snap
+        p = snap.parsed
         goal_id = br.GOALS[self.goal_idx][0]
         self.result = br.optimize_house(p, self.specs, goal_id=goal_id, seed=self.seed)
         self.best_stim = max((r.stimulation for r in self.specs if r.role == "breeding"), default=0.0)
@@ -576,16 +589,21 @@ class BreedingTab:
                 (x, y), 22, ui.ACCENT, "bold", maxw=w)
         y += 38
 
-        # Base stat bars
+        # Base stat bars, each led by the official in-game stat sprite
         for s in br.STAT_NAMES:
             v = c["stats"][s]
-            ui.text(surf, s, (x, y + 10), 21, ui.TEXT, "black", anchor="midleft")
-            bx = x + 90
-            bw = w - 160
-            ui.rrect(surf, (bx, y + 2, bw, 16), ui.CARD_HI, 6)
-            ui.rrect(surf, (bx, y + 2, round(bw * v / 7), 16), ui.stat_col(v), 6)
+            ico = ed.get_stat_icon(s, 28)
+            if ico is not None:
+                surf.blit(ico, ico.get_rect(midleft=(x, y + 10)))
+            ui.text(surf, s, (x + 36, y + 10), 21, ui.TEXT, "black", anchor="midleft")
+            bx = x + 112
+            bw = w - 172
+            ui.rrect(surf, (bx, y + 2, bw, 16), ui.CARD_HI, 6, ink=False)
+            if v > 0:
+                ui.rrect(surf, (bx, y + 2, max(8, round(bw * min(7, v) / 7)), 16), ui.stat_col(v), 6, ink=False)
+            pygame.draw.rect(surf, ui.INK, (bx, y + 2, bw, 16), width=2, border_radius=6)
             ui.text(surf, str(v), (box.right - 28, y + 10), 22, ui.stat_col(v), "black", anchor="midright")
-            y += 30
+            y += 31
 
         y += 14
         all_cats = self.app.snap.parsed["all_cats"]
@@ -677,7 +695,7 @@ class BreedingTab:
                 ui.text(surf, nm, (x, y), 21, ui.TEXT, "bold", maxw=190)
                 ui.text(surf, f"{src} » {_room_label(dst)}", (box.right - 28, y), 20, ui.ACCENT, "bold", anchor="topright", maxw=w - 200)
                 y += 30
-        ui.text(surf, "Press A to queue moves · click Save (N) to write.", (x, box.bottom - 34), 20, ui.FAINT, maxw=w)
+        ui.text(surf, "Press A to queue moves · then Save (Start) to write.", (x, box.bottom - 34), 20, ui.FAINT, maxw=w)
 
     def hint_items(self):
         mode = self.MODES[self.m][0]

@@ -83,6 +83,27 @@ def get_sprite(kind: str, key: str | None, size: int = 48) -> pygame.Surface | N
     return out
 
 
+def get_stat_icon(stat: str | None, size: int = 32, faded: bool = False) -> pygame.Surface | None:
+    """Official in-game stat sprite (``get_sprite("ui", stat)``) with its translucent paper card made solid.
+
+    The baked Mewgenics stat SVGs are black ink on a semi-transparent paper tag, which turns muddy grey on
+    MewDeck's dark cardboard; stacking the sprite onto itself makes the paper read crisp like in-game.
+    """
+    ck = ("stat", stat, size, faded)
+    if ck in _SPRITE_CACHE:
+        return _SPRITE_CACHE[ck]
+    base = get_sprite("ui", stat, size)
+    out = None
+    if base is not None:
+        out = pygame.Surface(base.get_size(), pygame.SRCALPHA)
+        for _ in range(3):
+            out.blit(base, (0, 0))
+        if faded:
+            out.set_alpha(110)
+    _SPRITE_CACHE[ck] = out
+    return out
+
+
 def get_item_icon(item_id: str | None, size: int = 48) -> pygame.Surface | None:
     return get_sprite("item", item_id, size)
 
@@ -140,7 +161,13 @@ def wrap_lines(font: pygame.font.Font, s: str, maxw: int, max_lines: int = 12) -
     return out[:max_lines]
 
 
-def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str, Any] | None) -> int:
+def draw_item_detail(
+    ui,
+    surf: pygame.Surface,
+    box: pygame.Rect,
+    item: dict[str, Any] | None,
+    owned_ids: set[str] | None = None,
+) -> int:
     """Draw unobfuscated item details (name, badges, stats, description, armor set bonus).
     Returns bottom y used inside box."""
     ui.rrect(surf, box, ui.CARD, 24)
@@ -188,12 +215,16 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         for sk, sv in stats.items():
             col = ui.GOOD if sv > 0 else ui.BAD
             txt = f"{'+' if sv > 0 else ''}{sv} {sk}"
-            est_w = ui.F(20, "bold").size(txt)[0] + 22
+            ico = get_stat_icon(sk, 30)  # official in-game stat sprite leads the chip
+            ico_w = 34 if ico is not None else 0
+            est_w = ui.F(20, "bold").size(txt)[0] + 22 + ico_w
             if sx > x and sx + est_w > box.right - 24:
                 sx = x
-                y += 36
-            r = ui.pill(surf, txt, sx, y, ui.mix(col, ui.CARD, .72), col, size=20)
-            sx = r.right + 8
+                y += 38
+            if ico is not None:
+                surf.blit(ico, ico.get_rect(midleft=(sx, y + 15)))
+            r = ui.pill(surf, txt, sx + ico_w, y, ui.mix(col, ui.CARD, .72), col, size=20)
+            sx = r.right + 12
         y += 42
 
     # Description
@@ -213,6 +244,7 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
 
     # Armor Set Bonus(es)
     sets = gd.item_set_info(item)
+    sets_by_id = pr.armor_sets_by_id() if owned_ids is not None else {}
     for sb in sets:
         sb_h_avail = box.bottom - y - 16
         if sb_h_avail < 76:
@@ -227,8 +259,27 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
         sbox = pygame.Rect(x, y, w, card_h)
         ui.rrect(surf, sbox, ui.CARD_HI, 16)
         ui.rrect(surf, (sbox.x + 4, sbox.y + 8, 7, sbox.h - 16), ui.ACCENT, 4, ink=False)
-        ui.text(surf, f"{sb['name']} ({sb.get('pieces', 3)} pcs)", (sbox.x + 18, sbox.y + 10), 21, ui.ACCENT, "black",
-                maxw=sbox.w - 30)
+        own_pill_w = 0
+        if owned_ids is not None:
+            cat_set = sets_by_id.get(sb.get("id", ""))
+            if cat_set and cat_set.get("slots"):
+                tot_pcs = len(cat_set["slots"])
+                own_pcs = sum(1 for sit in cat_set["slots"].values() if sit["id"] in owned_ids)
+                obg = ui.GOOD if own_pcs >= tot_pcs else (ui.ACCENT if own_pcs > 0 else ui.CARD)
+                ofg = ui.DARK if own_pcs > 0 else ui.DIM
+                pr_rect = ui.pill(
+                    surf,
+                    f"You own {own_pcs}/{tot_pcs} pcs",
+                    sbox.right - 12,
+                    sbox.y + 22,
+                    obg,
+                    ofg,
+                    size=16,
+                    anchor="midright",
+                )
+                own_pill_w = pr_rect.w + 14
+        ui.text(surf, f"{set_display_name(sb['name'])} · {sb.get('pieces', 3)} pcs", (sbox.x + 18, sbox.y + 10), 21, ui.ACCENT, "black",
+                maxw=sbox.w - 30 - own_pill_w)
         sy = sbox.y + 40
         for ln in sb_lines:
             if sy + 24 > sbox.bottom - 6:
@@ -237,6 +288,163 @@ def draw_item_detail(ui, surf: pygame.Surface, box: pygame.Rect, item: dict[str,
             sy += 25
         y = sbox.bottom + 10
 
+    return y
+
+
+def set_display_name(name: str) -> str:
+    """'Gimp Set Bonus!' -> 'Gimp Set' so set lists scan by name, not boilerplate."""
+    n = (name or "").strip()
+    for suf in (" Bonus!", " Bonus"):
+        if n.endswith(suf):
+            return n[: -len(suf)]
+    return n
+
+
+def draw_set_overview_detail(
+    ui,
+    surf: pygame.Surface,
+    box: pygame.Rect,
+    set_obj: dict[str, Any] | None,
+    owned_locs: dict[str, set[str]],
+    queued_counts: dict[str, int],
+) -> int:
+    """Draw full Armor Set overview: bonus stats/description and every piece with live ownership status."""
+    ui.rrect(surf, box, ui.CARD, 24)
+    x = box.x + 26
+    w = box.w - 52
+    y = box.y + 22
+    if not set_obj:
+        ui.text(surf, "ARMOR SET OVERVIEW", (x, y), 18, ui.FAINT, "black")
+        ui.text(surf, "Select an armor set to inspect its bonus and piece ownership.", (x, y + 36), 23, ui.DIM, maxw=w)
+        return y + 80
+
+    slot_order = [sk for sk in ("head", "face", "neck", "weapon", "trinket") if sk in set_obj["slots"]]
+    total_pcs = len(slot_order)
+    owned_pcs = sum(1 for sk in slot_order if owned_locs.get(set_obj["slots"][sk]["id"]))
+    full = total_pcs > 0 and owned_pcs >= total_pcs
+
+    n_pcs = set_obj.get('pieces', total_pcs)
+    ui.text(surf, f"ARMOR SET  ·  BONUS AT {n_pcs} OF {total_pcs}", (x, y + 2), 17, ui.ACCENT, "black")
+    own_bg = ui.GOOD if full else (ui.ACCENT if owned_pcs > 0 else ui.CARD_HI)
+    own_fg = ui.DARK if owned_pcs > 0 else ui.DIM
+    own_lbl = f"{owned_pcs}/{total_pcs} Owned" + (" · FULL" if full else "")
+    ui.pill(surf, own_lbl, box.right - 26, y + 12, own_bg, own_fg, size=18, anchor="midright")
+    y += 32
+
+    ui.text(surf, set_display_name(set_obj["name"]), (x, y), 31, ui.TEXT, "black", maxw=w)
+    y += 44
+
+    # Set Bonus card: stat icons/pills + bonus description
+    s_stats = set_obj.get("stats") or {}
+    desc_text = set_obj.get("desc") or ("Equip all pieces to activate this set bonus." if not s_stats else "")
+    desc_lines = wrap_lines(ui.F(20), desc_text, w - 34, max_lines=3) if desc_text else []
+    stat_row_h = 38 if s_stats else 0
+    bonus_h = 24 + stat_row_h + len(desc_lines) * 24 + (6 if s_stats and desc_lines else 0)
+    bonus_h = max(56, min(bonus_h, 152))
+    bbox = pygame.Rect(x, y, w, bonus_h)
+    ui.rrect(surf, bbox, ui.CARD_HI, 16)
+    ui.rrect(surf, (bbox.x + 4, bbox.y + 8, 7, bbox.h - 16), ui.GOOD if full else ui.ACCENT, 4, ink=False)
+    by = bbox.y + 12
+    if s_stats:
+        sx = bbox.x + 18
+        for sk, sv in s_stats.items():
+            if not sv:
+                continue
+            col = ui.GOOD if sv > 0 else ui.BAD
+            txt = f"{'+' if sv > 0 else ''}{sv} {sk}"
+            ico = get_stat_icon(sk, 26)
+            ico_w = 30 if ico is not None else 0
+            if sx > bbox.x + 18 and sx + ui.F(18, "bold").size(txt)[0] + 20 + ico_w > bbox.right - 14:
+                break
+            if ico is not None:
+                surf.blit(ico, ico.get_rect(midleft=(sx, by + 13)))
+            r = ui.pill(surf, txt, sx + ico_w, by, ui.mix(col, ui.CARD, .72), col, size=18)
+            sx = r.right + 10
+        by += 36
+    for ln in desc_lines:
+        if by + 22 > bbox.bottom - 6:
+            break
+        if ln:
+            ui.text(surf, ln, (bbox.x + 18, by), 20, ui.TEXT if len(desc_lines) <= 2 else ui.DIM, maxw=bbox.w - 30)
+        by += 24
+    y = bbox.bottom + 14
+
+    # Piece list
+    lr = ui.text(surf, "SET PIECES", (x, y), 17, ui.FAINT, "black")
+    # Segmented ownership meter beside the section label (one segment per piece)
+    seg_gap = 5
+    seg_x0 = lr.right + 16
+    seg_w = max(14, min(64, (box.right - 26 - seg_x0 - seg_gap * (total_pcs - 1)) // max(1, total_pcs)))
+    for k in range(total_pcs):
+        pygame.draw.rect(surf, (ui.GOOD if full else ui.ACCENT) if k < owned_pcs else ui.WELL,
+                         (seg_x0 + k * (seg_w + seg_gap), lr.centery - 4, seg_w, 8), border_radius=4)
+    y += 30
+
+    avail_h = box.bottom - y - 50  # keep a clear band for the action hint
+    gap = 7
+    row_h = 78 if total_pcs <= 3 else max(58, (avail_h - gap * max(0, total_pcs - 1)) // max(1, total_pcs))
+    slot_short = {"head": "Hat", "face": "Face", "neck": "Necklace", "weapon": "Weapon", "trinket": "Trinket"}
+
+    for sk in slot_order:
+        if y + row_h > box.bottom - 44:
+            break
+        it = set_obj["slots"][sk]
+        iid = it["id"]
+        locs = owned_locs.get(iid) or set()
+        q_cnt = queued_counts.get(iid, 0)
+
+        prow = pygame.Rect(x, y, w, row_h)
+        is_owned = bool(locs)
+        ui.rrect(surf, prow, ui.mix(ui.CARD_HI, ui.CARD, .45) if is_owned else ui.WELL, 15, ink=True)
+
+        b_sz = min(54, row_h - 16)
+        ib = pygame.Rect(prow.x + 10, prow.centery - b_sz // 2, b_sz, b_sz)
+        draw_item_badge(ui, surf, iid, ib, it.get("rarity", ""))
+
+        # Status badge (top-right)
+        if "equipped" in locs:
+            st_lbl = f"EQUIPPED +{q_cnt}" if q_cnt else "EQUIPPED"
+            st_bg, st_fg = ui.INFO, ui.DARK
+        elif "storage" in locs or "backpack" in locs:
+            st_lbl = f"OWNED +{q_cnt}" if q_cnt else "OWNED"
+            st_bg, st_fg = ui.GOOD, ui.DARK
+        elif "queued" in locs or q_cnt > 0:
+            st_lbl = f"QUEUED ×{q_cnt}" if q_cnt > 1 else "QUEUED"
+            st_bg, st_fg = ui.ACCENT, ui.DARK
+        else:
+            st_lbl = "MISSING"
+            st_bg, st_fg = ui.CARD_HI, ui.DIM
+
+        st_pill = ui.pill(surf, st_lbl, prow.right - 12, prow.y + 20, st_bg, st_fg, size=15, anchor="midright")
+
+        tx = ib.right + 12
+        name_maxw = max(120, st_pill.left - tx - 10)
+        ui.text(surf, it.get("name") or iid, (tx, prow.y + 10), 22, ui.TEXT if is_owned else ui.DIM, "bold", maxw=name_maxw)
+
+        # Bottom line: slot label (+ location note) on left, stat icons on right
+        loc_bits = []
+        if "equipped" in locs:
+            loc_bits.append("Cat")
+        if "storage" in locs:
+            loc_bits.append("Home")
+        if "backpack" in locs:
+            loc_bits.append("Adv")
+        slot_txt = slot_short.get(sk, cb.EQUIP_SLOT_LABELS.get(sk, sk.title()))
+        if loc_bits:
+            slot_txt += " · " + "/".join(loc_bits)
+        bottom_cy = prow.bottom - 17
+        right_edge = prow.right - 12
+        if any((it.get("stats") or {}).values()):
+            stats_left = ui.draw_stat_deltas(surf, it["stats"], right_edge, bottom_cy, size=17, icon=22, max_n=3)
+            slot_maxw = max(90, stats_left - tx - 10)
+        else:
+            slot_maxw = max(120, right_edge - tx)
+        ui.text(surf, slot_txt, (tx, bottom_cy), 17, ui.FAINT if not is_owned else ui.DIM, "semi",
+                anchor="midleft", maxw=slot_maxw)
+        y += row_h + gap
+
+    action_hint = "Press A to queue a full extra set · X to undo queued" if full else "Press A to queue missing pieces · X to undo queued"
+    ui.text(surf, action_hint, (x, box.bottom - 14), 17, ui.FAINT, "bold", anchor="bottomleft", maxw=w)
     return y
 
 
@@ -1615,10 +1823,10 @@ class BonusStatsScreen:
         bonus = self.cat_edit.vals["level_bonuses"][s]
         inj = 0 if self.cat_edit.vals["heal"] else self.cat_edit.cat["injury_mods"][s]
         eff = max(1, base + bonus + inj)
-        ico = get_sprite("ui", s, 32)
+        ico = get_stat_icon(s, 40)
         if ico is not None:
-            surf.blit(ico, ico.get_rect(midleft=(r.x + 24, r.centery)))
-        ui.text(surf, s, (r.x + 68, r.centery), 32, ui.TEXT, "black", anchor="midleft")
+            surf.blit(ico, ico.get_rect(center=(r.x + 44, r.centery)))
+        ui.text(surf, s, (r.x + 76, r.centery), 32, ui.TEXT, "black", anchor="midleft")
         ui.text(surf, f"Base {base}  {'+' if bonus >= 0 else ''}{bonus} bonus" + (f"  {inj} inj" if inj else "") + f"  =  {eff}",
                 (r.x + 190, r.centery), 24, ui.DIM, anchor="midleft")
         lr = pygame.Rect(r.right - 224, r.centery - 22, 44, 44)
@@ -1643,9 +1851,22 @@ class BonusStatsScreen:
         s = self.list.current.data if self.list.current else "STR"
         x, y, w = box.x + 30, box.y + 30, box.w - 60
         ui.text(surf, "LEVEL-UP BONUS STATS", (x, y), 18, ui.FAINT, "black")
-        ui.text(surf, s, (x, y + 34), 40, ui.ACCENT, "black")
+        big = get_stat_icon(s, 52)
+        if big is not None:
+            surf.blit(big, big.get_rect(midleft=(x, y + 60)))
+        ui.text(surf, s, (x + (64 if big is not None else 0), y + 60), 40, ui.ACCENT, "black", anchor="midleft")
+        n_desc = 0
         for i, ln in enumerate(wrap_lines(ui.F(25), ui.STAT_INFO[s], w, max_lines=4)):
             ui.text(surf, ln, (x, y + 96 + i * 32), 25, ui.TEXT)
+            n_desc = i + 1
+        # Live preview: effective stats (base + bonus + injury) on the in-game stat strip
+        vals = self.cat_edit.vals
+        heal = vals["heal"]
+        eff = {k: max(1, vals["stats"][k] + vals["level_bonuses"][k] + (0 if heal else self.cat_edit.cat["injury_mods"][k]))
+               for k in ui.STATS}
+        sy = y + 96 + n_desc * 32 + 34
+        ui.text(surf, "EFFECTIVE STATS", (x, sy), 16, ui.FAINT, "black")
+        ui.draw_stat_strip(surf, eff, x + 7 * 52 + 12, sy + 28 + 43)  # tray: 7 cells of 52px, 86px tall
         note = "Level-up bonuses stack on top of base stats (1-7) without breaking breeding caps."
         for i, ln in enumerate(wrap_lines(ui.F(22), note, w, max_lines=3)):
             ui.text(surf, ln, (x, box.bottom - 108 + i * 28), 22, ui.DIM)
