@@ -83,7 +83,11 @@ DESK
   echo "85"
   echo "# Adding MewDeck to Steam with full artwork…"
   STEAM_OK=0
-  if PYTHONPATH="$APP" "$DATA/mewdeck/venv/bin/python" -m mewdeck.steam_shortcut install --exe "$APP/run.sh" --icon "$ICON" >&2; then
+  STEAM_EXTRA=()
+  if [ "${MEWDECK_HEADLESS:-0}" = "1" ]; then
+    STEAM_EXTRA+=(--artwork-if-exists)
+  fi
+  if PYTHONPATH="$APP" "$DATA/mewdeck/venv/bin/python" -m mewdeck.steam_shortcut install --exe "$APP/run.sh" --icon "$ICON" "${STEAM_EXTRA[@]}" >&2; then
     STEAM_OK=1
   fi
   echo "$STEAM_OK" >"$DATA/mewdeck/.steam_ok"

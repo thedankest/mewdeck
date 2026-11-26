@@ -327,6 +327,42 @@ def test_real_save_v14_unlocks_batch_clone_and_atlases():
     assert len(diff) >= 8
 
 
+def test_steam_shortcut_preserves_appid_and_artwork():
+    from mewdeck import steam_shortcut as ss
+
+    user = Path(tempfile.mkdtemp(prefix="mewdeck-steam-")) / "12345678"
+    cfg = user / "config"
+    cfg.mkdir(parents=True)
+    # Simulate a Steam-assigned AppID created when adding MewDeck via Steam UI
+    steam_assigned = 3060399406
+    old_vdf = {
+        "shortcuts": {
+            "0": {
+                "appid": (ss.T_INT, ss._signed(steam_assigned)),
+                "AppName": (ss.T_STR, "MewDeck"),
+                "Exe": (ss.T_STR, '"/home/bazzite/.local/share/mewdeck/app/run.sh"'),
+                "StartDir": (ss.T_STR, '"/home/bazzite/.local/share/mewdeck/app"'),
+                "tags": {},
+            }
+        }
+    }
+    vdf_path = cfg / "shortcuts.vdf"
+    vdf_bytes = ss.vdf_dump(old_vdf)
+    vdf_path.write_bytes(vdf_bytes)
+
+    # 1. refresh_artwork_for_user must NOT modify shortcuts.vdf and must detect steam_assigned
+    exe = Path("/home/bazzite/.local/share/mewdeck/app/run.sh")
+    ids = ss.refresh_artwork_for_user(user, exe)
+    assert steam_assigned in ids
+    assert vdf_path.read_bytes() == vdf_bytes
+
+    # 2. add_shortcut must preserve steam_assigned as the entry's AppID
+    appid, added = ss.add_shortcut(user, exe, None)
+    assert not added and appid == steam_assigned
+    reloaded = ss.vdf_load(vdf_path.read_bytes())
+    assert ss._entry_appid(reloaded["shortcuts"]["0"]) == steam_assigned
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

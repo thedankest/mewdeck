@@ -887,6 +887,7 @@ class HomeTab(Tab):
         upd_lbl = f"Install Update ({upd_info['tag']})" if (upd_info and upd_info.get("newer")) else f"Check for Updates (v{upd.VERSION})"
         rows += [
             Row("Verify Save Integrity", data=("tool", "integrity")),
+            Row("Refresh Steam Artwork", data=("tool", "steam_art")),
             Row(f"UI Sounds: {'ON' if sfx.enabled() else 'OFF'}", data=("tool", "sfx")),
             Row(upd_lbl, data=("tool", "update")),
             Row("Save pending changes", data=("write",)),
@@ -970,6 +971,13 @@ class HomeTab(Tab):
             ok, notes = sf.check_integrity(app.save)
             app.confirm("Save Integrity: OK" if ok else "Save Integrity: Issues Found",
                         "  ·  ".join(notes), lambda: None, yes="OK", danger=not ok)
+        elif tool == "steam_art":
+            from . import steam_shortcut as ss
+            n, ids = ss.refresh_artwork()
+            if n and ids:
+                app.toast(f"Steam artwork refreshed (ID {ids[0]}) · restart Steam to view", GOOD, 4.0)
+            else:
+                app.toast("No Steam shortcut found — re-run installer in Desktop Mode", ACCENT, 4.0)
         elif tool == "sfx":
             sfx.set_enabled(not sfx.enabled())
             if sfx.enabled():
@@ -1045,7 +1053,7 @@ class HomeTab(Tab):
         focused = self.col == 1 and selected
         if row.data[0] == "tool":
             tkey = row.data[1]
-            ico_k = {"integrity": "Shield", "sfx": "Heart", "update": "Reroll"}.get(tkey, "Move")
+            ico_k = {"integrity": "Shield", "steam_art": "Treasure", "sfx": "Heart", "update": "Reroll"}.get(tkey, "Move")
             ico = ed.get_sprite("ui", ico_k, 32)
             if ico is not None:
                 surf.blit(ico, ico.get_rect(midleft=(r.x + 20, r.centery)))
