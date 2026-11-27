@@ -321,7 +321,7 @@ def parse_adventure_state(blob: bytes) -> List[int]:
     ver = u32_le(blob, 0)
     cnt = u32_le(blob, 4)
 
-    if cnt > 8:
+    if cnt > 32:
         return []
 
     off = 8
@@ -334,7 +334,7 @@ def parse_adventure_state(blob: bytes) -> List[int]:
         hi = (v >> 32) & 0xFFFFFFFF
         lo = v & 0xFFFFFFFF
         key = int(hi if hi != 0 else lo)
-        if 0 < key <= 1000000:
+        if 0 < key <= 10_000_000:
             keys.append(key)
 
     return keys

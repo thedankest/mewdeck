@@ -98,11 +98,348 @@ def _pack_u64_str(s: str) -> bytes:
     return struct.pack("<Q", len(raw)) + raw
 
 
+def _is_ascii_ident(b: bytes, o: int, ln: int) -> bool:
+    if ln <= 0 or o + ln > len(b):
+        return False
+    first = b[o]
+    if not (65 <= first <= 90 or 97 <= first <= 122 or first == 95):
+        return False
+    for ch in b[o + 1:o + ln]:
+        if not (65 <= ch <= 90 or 97 <= ch <= 122 or 48 <= ch <= 57 or ch == 95):
+            return False
+    return True
+
+
+def _parse_ability_section(dec: bytes, ab_off: int) -> tuple[list[str], int, list[tuple[str, int]], int]:
+    """Parse variable-length contiguous u64 ability run + p1_tier + 3 tail (str, tier) entries.
+
+    Supports standard 11-entry runs as well as extended runs (e.g. Jester or extra class abilities).
+    """
+    n = len(dec)
+    cur = ab_off
+    run_items: list[str] = []
+
+    def _try_tail(pos: int) -> tuple[int, list[tuple[str, int]], int] | None:
+        if pos + 4 > n:
+            return None
+        p1_t = _u32(dec, pos)
+        if not (1 <= p1_t <= 50):
+            return None
+        q = pos + 4
+        tail: list[tuple[str, int]] = []
+        for _ in range(3):
+            if q + 8 > n:
+                return None
+            ln = _u64(dec, q)
+            if ln > 128 or q + 8 + ln + 4 > n:
+                return None
+            if ln > 0 and not _is_ascii_ident(dec, q + 8, ln):
+                return None
+            s = dec[q + 8:q + 8 + ln].decode("ascii", errors="replace")
+            t = _u32(dec, q + 8 + ln)
+            if not (1 <= t <= 50):
+                return None
+            tail.append((s, t))
+            q += 8 + ln + 4
+        return p1_t, tail, q
+
+    for idx in range(32):
+        if idx >= 11:
+            hit = _try_tail(cur)
+            if hit is not None:
+                return run_items, hit[0], hit[1], hit[2]
+        s, cur = _read_u64_str(dec, cur)
+        run_items.append(s)
+
+    hit = _try_tail(cur)
+    if hit is not None:
+        return run_items, hit[0], hit[1], hit[2]
+    raise ValueError(f"could not locate ability tail after {len(run_items)} items at {ab_off}")
+
+
+def _find_slot_boundary(dec: bytes, search_start: int, max_search: int = 800) -> int | None:
+    """Locate 0xFF <flag> 0x05 0x00 0x00 0x00 boundary pointing to next slot's u32(5)."""
+    n = len(dec)
+    end = min(n - 6, search_start + max_search)
+    for p in range(search_start, end):
+        if dec[p] == 0xFF and dec[p + 2:p + 6] == b"\x05\x00\x00\x00":
+            return p + 2
+    return None
+
+
+def _looks_like_class_at(dec: bytes, pos: int) -> bool:
+    if pos + 8 > len(dec):
+        return False
+    ln = _u64(dec, pos)
+    if not (2 <= ln <= 32) or pos + 8 + ln + 28 > len(dec):
+        return False
+    if not _is_ascii_ident(dec, pos + 8, ln):
+        return False
+    s = dec[pos + 8:pos + 8 + ln].decode("ascii", errors="replace")
+    return s in CAT_CLASSES or (s[0].isupper() and ln <= 24)
+
+
+def _find_class_after_slot4(dec: bytes, search_start: int, max_search: int = 1200) -> int | None:
+    n = len(dec)
+    end = min(n - 10, search_start + max_search)
+    for p in range(search_start, end):
+        if dec[p] == 0xFF and dec[p + 1] <= 16 and _looks_like_class_at(dec, p + 2):
+            return p + 2
+    for p in range(search_start, end):
+        if _looks_like_class_at(dec, p):
+            return p
+    return None
+
+
+def _parse_equipment_section(dec: bytes, eq_off: int) -> tuple[dict[str, dict[str, Any] | None], list[bytes], int]:
+    """Parse all 5 equipment slots deterministically with resilient boundary fallback for special/collar items."""
+    n = len(dec)
+    cur = eq_off
+    equipment: dict[str, dict[str, Any] | None] = {}
+    raw_slots: list[bytes] = []
+
+    for idx, slot_key in enumerate(EQUIP_SLOT_KEYS):
+        s_start = cur
+        # Handle implicit-empty Slot 4 (game jumps straight to class string with no 5-byte slot header)
+        if idx == 4 and _looks_like_class_at(dec, cur):
+            equipment[slot_key] = None
+            raw_slots.append(b"")
+            continue
+
+        if cur + 5 > n:
+            raise ValueError(f"truncated equipment slot {slot_key} at {cur}")
+        ver = _u32(dec, cur)
+        present = dec[cur + 4]
+        cur += 5
+        if present:
+            item_id, cur = _read_u64_str(dec, cur)
+            sub_name, cur = _read_u64_str(dec, cur)
+            if cur + 18 <= n:
+                charges, f1, f2, seq_id = struct.unpack_from("<iIII", dec, cur)
+                tail_b = dec[cur + 16]
+                after_b = dec[cur + 17]
+                cand_next = cur + 18
+                # Verify cand_next lands cleanly on next slot header or class string; otherwise scan boundary
+                valid_next = (
+                    (_looks_like_class_at(dec, cand_next) if idx == 4 else
+                     (cand_next + 5 <= n and _u32(dec, cand_next) == 5 and dec[cand_next + 4] in (0, 1)))
+                )
+                if valid_next:
+                    cur = cand_next
+                else:
+                    nxt = _find_class_after_slot4(dec, cur) if idx == 4 else _find_slot_boundary(dec, cur)
+                    if nxt is not None:
+                        cur = nxt
+                    else:
+                        cur = cand_next
+            else:
+                charges, f1, f2, seq_id, tail_b, after_b = -1, 0, 0, 0, 0xFF, 0
+            equipment[slot_key] = {
+                "item_id": item_id,
+                "sub_name": sub_name,
+                "charges": charges,
+                "field1": f1,
+                "field2": f2,
+                "seq_id": seq_id,
+                "tail_byte": tail_b,
+                "after_tail_byte": after_b,
+                "version": ver,
+            }
+        else:
+            equipment[slot_key] = None
+        raw_slots.append(dec[s_start:cur])
+
+    return equipment, raw_slots, cur
+
+
+def _parse_cat_blob_fallback(dec: bytes, variant: str, key: int, room: str, current_day: int) -> dict[str, Any]:
+    """Pattern-scanning fallback parser so unusual cats (e.g. Jester/special items/new patches) never disappear."""
+    n = len(dec)
+    blob_ver = _u32(dec, 0x00) if n >= 4 else 0
+    id64 = _u64(dec, 0x04) if n >= 12 else 0
+    _, name_end, name, sex = _mp.detect_name_end_and_sex(dec)
+    marker = ""
+    after_tag = name_end + 8
+    try:
+        ml = _u64(dec, name_end)
+        if ml <= 64 and name_end + 8 + ml <= n:
+            marker = dec[name_end + 8:name_end + 8 + ml].decode("ascii", errors="replace")
+            after_tag = name_end + 8 + ml
+    except Exception:
+        pass
+    flags = _u16(dec, after_tag + 8) if after_tag + 10 <= n else 0
+    grown = bool(flags & 0x0001)
+    retired = bool(flags & 0x0002)
+    dead = bool(flags & 0x0020)
+    donated = bool(flags & 0x4000)
+
+    # Scan for mutation table (16B header + 14*20B slots)
+    mutations: dict[str, int] = {"coat": 1}
+    scars: dict[str, int] = {}
+    mbase = -1
+    best_mscore = -1
+    for base in range(max(0, after_tag), max(0, n - 296)):
+        sc = struct.unpack_from("<f", dec, base)[0]
+        coat = _u32(dec, base + 4)
+        t1 = _u32(dec, base + 8)
+        t2 = _u32(dec, base + 12)
+        if not (0.05 <= sc <= 20.0) or coat == 0 or coat > 20000 or t1 > 500 or (t2 != 0xFFFFFFFF and t2 > 5000):
+            continue
+        ok = sum(1 for i in range(14) if _u32(dec, base + 16 + i * 20 + 4) in (coat, 0))
+        if ok >= 10 and ok * 1000 + base > best_mscore:
+            best_mscore = ok * 1000 + base
+            mbase = base
+    if mbase >= 0:
+        mutations["coat"] = _u32(dec, mbase + 4)
+        for i, sk in enumerate(MUT_SLOT_KEYS):
+            so = mbase + 16 + i * 20
+            mutations[sk] = _u32(dec, so)
+            scar = _u32(dec, so + 8)
+            if scar:
+                scars[sk] = scar
+    else:
+        for sk in MUT_SLOT_KEYS:
+            mutations[sk] = 0
+
+    # Scan for primary ability run starting with DefaultMove (or any valid Move ability)
+    abilities = {
+        "active": [None] * 6, "extra": ["None"] * 4,
+        "passive": [None, None], "passive_tiers": [1, 1],
+        "disorder": [None, None], "disorder_tiers": [1, 1],
+    }
+    ab_off = -1
+    ab_end = -1
+    dm = dec.find(struct.pack("<Q", 11) + b"DefaultMove")
+    if dm >= 0:
+        try:
+            run_items, p1_tier, tail_ab, ab_end = _parse_ability_section(dec, dm)
+            ab_off = dm
+            _norm = lambda s: None if (not s or s == "None") else s
+            abilities = {
+                "active": [_norm(x) for x in run_items[:6]],
+                "extra": run_items[6:-1],
+                "passive": [_norm(run_items[-1]), _norm(tail_ab[0][0])],
+                "passive_tiers": [max(1, min(2, p1_tier)), max(1, min(2, tail_ab[0][1]))],
+                "disorder": [_norm(tail_ab[1][0]), _norm(tail_ab[2][0])],
+                "disorder_tiers": [max(1, tail_ab[1][1]), max(1, tail_ab[2][1])],
+            }
+        except Exception:
+            pass
+
+    # Stats block: try right after voice block from mbase, else scan plausible 7x(1..7) ints
+    stats = {k: 4 for k in STAT_NAMES}
+    level_bonuses = {k: 0 for k in STAT_NAMES}
+    injury_mods = {k: 0 for k in STAT_NAMES}
+    injury_name = ""
+    hp_raw = HP_FULL
+    dead_u32 = 0
+    stats_off = -1
+    if mbase >= 0 and mbase + 304 < n:
+        try:
+            _, vo = _read_u64_str(dec, mbase + 304)
+            so = vo + 8
+            if so + 84 <= n:
+                bv = struct.unpack_from("<7i", dec, so)
+                if all(0 <= v <= 20 for v in bv):
+                    stats_off = so
+        except Exception:
+            pass
+    if stats_off < 0:
+        for so in range(max(0, mbase if mbase > 0 else after_tag), max(0, (ab_off if ab_off > 0 else n) - 84)):
+            bv = struct.unpack_from("<7i", dec, so)
+            if all(1 <= v <= 7 for v in bv):
+                lv = struct.unpack_from("<7i", dec, so + 28)
+                iv = struct.unpack_from("<7i", dec, so + 56)
+                if all(-30 <= v <= 99 for v in lv) and all(-30 <= v <= 30 for v in iv):
+                    stats_off = so
+                    break
+    if stats_off >= 0:
+        stats = dict(zip(STAT_NAMES, struct.unpack_from("<7i", dec, stats_off)))
+        level_bonuses = dict(zip(STAT_NAMES, struct.unpack_from("<7i", dec, stats_off + 28)))
+        injury_mods = dict(zip(STAT_NAMES, struct.unpack_from("<7i", dec, stats_off + 56)))
+        try:
+            inj_s, hp_off = _read_u64_str(dec, stats_off + 84)
+            injury_name = "" if inj_s == "none" else inj_s
+            if hp_off + 8 <= n:
+                hp_raw = _u32(dec, hp_off)
+                dead_u32 = _u32(dec, hp_off + 4)
+        except Exception:
+            pass
+
+    # Equipment & class scan
+    equipment: dict[str, dict[str, Any] | None] = {sk: None for sk in EQUIP_SLOT_KEYS}
+    cat_class = "Colorless"
+    level = 1
+    xp_frac = 0.0
+    birth_day = 0
+    death_day = -1
+    cls_off = -1
+    if ab_end > 0:
+        try:
+            equipment, _, cls_off = _parse_equipment_section(dec, ab_end)
+        except Exception:
+            pass
+    if cls_off < 0 or not _looks_like_class_at(dec, cls_off):
+        # Scan for any known class name u64-string near tail of blob
+        search_from = max(0, ab_end if ab_end > 0 else n // 2)
+        for cname in CAT_CLASSES:
+            pat = _pack_u64_str(cname)
+            pos = dec.find(pat, search_from)
+            if pos >= 0 and pos + len(pat) + 28 <= n:
+                cls_off = pos
+                break
+    if cls_off >= 0:
+        try:
+            cat_class, c_after = _read_u64_str(dec, cls_off)
+            if c_after + 28 <= n:
+                level = _i32(dec, c_after)
+                xp_frac = struct.unpack_from("<d", dec, c_after + 4)[0]
+                birth_day = _i64(dec, c_after + 12)
+                death_day = _i64(dec, c_after + 20)
+        except Exception:
+            pass
+
+    age = max(0, current_day - birth_day) if birth_day >= 0 else 0
+    eff_stats = {k: max(1, stats[k] + level_bonuses[k] + injury_mods[k]) for k in STAT_NAMES}
+    max_hp = max(1, eff_stats["CON"] * 4)
+    current_hp = max_hp if hp_raw == HP_FULL else min(max_hp, hp_raw)
+    injured = bool(injury_name) or any(v < 0 for v in injury_mods.values()) or bool(scars)
+    wounded = hp_raw != HP_FULL and hp_raw < max_hp
+
+    return {
+        "key": key, "id64": id64, "name": name or f"Cat #{key}", "sex": sex, "age": age,
+        "level": max(0, min(99, level)), "class": cat_class, "grown": grown, "retired": retired,
+        "dead": dead or bool(dead_u32), "donated": donated, "isOld": age >= 20,
+        "stats": stats, "level_bonuses": level_bonuses, "injury_mods": injury_mods,
+        "effective_stats": eff_stats, "injury": injury_name, "injured": injured, "wounded": wounded,
+        "hp_raw": hp_raw, "hp": current_hp, "max_hp": max_hp, "max_mana": eff_stats["CHA"] * 3,
+        "scars": scars, "abilities": abilities, "mutations": mutations, "equipment": equipment,
+        "room": room, "birth_day": birth_day, "death_day": death_day,
+        "libido": 0.5, "sexuality": 0.0, "lover_id": None, "aggression": 0.5,
+        "hater_id": None, "fertility": 1.0,
+        "coi": float(xp_frac) if (0.0 <= xp_frac <= 1.0) else 0.0,
+        "parent_a": None, "parent_b": None,
+        "_blob_ver": blob_ver, "_variant": variant, "_marker": marker, "_scale": 1.0,
+        "_xp": xp_frac, "_name_end": name_end, "_after_tag": after_tag, "_mbase": mbase,
+        "_stats_offset": stats_off, "_injury_str_off": -1, "_hp_off": -1,
+        "_ab_off": ab_off, "_eq_off": -1, "_cls_off": cls_off, "_birth_day": birth_day,
+        "_fallback": True,
+    }
+
+
 # --------------------------------------------------------------------------- cat blob
 
 def parse_cat_blob(wrapped: bytes, key: int, room: str, current_day: int) -> dict[str, Any]:
-    """Deterministically parse a single LZ4-wrapped cat BLOB from byte 0 to EOF."""
+    """Deterministically parse a single LZ4-wrapped cat BLOB from byte 0 to EOF,
+    with resilient fallback so unusual cats (e.g. Jester / special items) never disappear."""
     dec, variant = _mp.decompress_cat_blob(wrapped)
+    try:
+        return _parse_cat_blob_strict(dec, variant, key, room, current_day)
+    except Exception:
+        return _parse_cat_blob_fallback(dec, variant, key, room, current_day)
+
+
+def _parse_cat_blob_strict(dec: bytes, variant: str, key: int, room: str, current_day: int) -> dict[str, Any]:
     n = len(dec)
     if n < 0x14 + 92 + 296:
         raise ValueError(f"cat blob too small ({n} bytes)")
@@ -131,35 +468,32 @@ def parse_cat_blob(wrapped: bytes, key: int, room: str, current_day: int) -> dic
     dead = bool(flags & 0x0020)
     donated = bool(flags & 0x4000)
 
-    # Personality & relationships block (between flags and body parts)
+    # Personality & relationships block (variable-length u64 string at after_tag+16 — e.g. "None" or collar/tag!)
     libido = 0.5
     sexuality = 0.0
     lover_id: int | None = None
     aggression = 0.5
     hater_id: int | None = None
     fertility = 1.0
-    try:
-        _, p_after = _read_u64_str(dec, after_tag + 16)
-        po = p_after + 4
-        if po + 64 <= n:
-            lib, sexu, lvr, _la, agg, htr, _ha, fert = struct.unpack_from("<ddQddQdd", dec, po)
-            if 0.0 <= lib <= 2.0:
-                libido = lib
-            if 0.0 <= sexu <= 2.0:
-                sexuality = sexu
-            if lvr != 0xFFFFFFFFFFFFFFFF and lvr != 0:
-                lover_id = int(lvr)
-            if 0.0 <= agg <= 2.0:
-                aggression = agg
-            if htr != 0xFFFFFFFFFFFFFFFF and htr != 0:
-                hater_id = int(htr)
-            if 0.0 <= fert <= 10.0:
-                fertility = fert
-    except Exception:
-        pass
+    _, p_after = _read_u64_str(dec, after_tag + 16)
+    po = p_after + 4
+    if po + 64 <= n:
+        lib, sexu, lvr, _la, agg, htr, _ha, fert = struct.unpack_from("<ddQddQdd", dec, po)
+        if 0.0 <= lib <= 2.0:
+            libido = lib
+        if 0.0 <= sexu <= 2.0:
+            sexuality = sexu
+        if lvr != 0xFFFFFFFFFFFFFFFF and lvr != 0:
+            lover_id = int(lvr)
+        if 0.0 <= agg <= 2.0:
+            aggression = agg
+        if htr != 0xFFFFFFFFFFFFFFFF and htr != 0:
+            hater_id = int(htr)
+        if 0.0 <= fert <= 10.0:
+            fertility = fert
 
-    # Mutations / appearance table (16B header + 14 * 20B slots = 296B)
-    mbase = after_tag + 92
+    # Mutations / appearance table immediately follows personality block (16B header + 14 * 20B slots = 296B)
+    mbase = p_after + 64
     scale = struct.unpack_from("<f", dec, mbase)[0]
     coat_id = _u32(dec, mbase + 4)
     mutations: dict[str, int] = {"coat": coat_id}
@@ -196,60 +530,24 @@ def parse_cat_blob(wrapped: bytes, key: int, room: str, current_day: int) -> dic
     dead_u32 = _u32(dec, hp_off + 4)
     ab_off = hp_off + 14
 
-    # Abilities: 11 u64-strings + u32 passive1_tier + 3 * (u64-str + u32 tier)
-    run_items: list[str] = []
-    cur = ab_off
-    for _ in range(11):
-        s, cur = _read_u64_str(dec, cur)
-        run_items.append(s)
-    p1_tier = _u32(dec, cur)
-    cur += 4
-    tail_ab: list[tuple[str, int]] = []
-    for _ in range(3):
-        s, cur = _read_u64_str(dec, cur)
-        t = _u32(dec, cur)
-        cur += 4
-        tail_ab.append((s, t))
+    # Abilities: variable-length u64-string run (>=11) + u32 passive1_tier + 3 * (u64-str + u32 tier)
+    run_items, p1_tier, tail_ab, cur = _parse_ability_section(dec, ab_off)
 
     def _norm(s: str) -> str | None:
         return None if (not s or s == "None") else s
 
     abilities = {
         "active": [_norm(x) for x in run_items[:6]],
-        "extra": run_items[6:10],  # preserved verbatim
-        "passive": [_norm(run_items[10]), _norm(tail_ab[0][0])],
+        "extra": run_items[6:-1],  # preserved verbatim (normally 4 items)
+        "passive": [_norm(run_items[-1]), _norm(tail_ab[0][0])],
         "passive_tiers": [max(1, min(2, p1_tier)), max(1, min(2, tail_ab[0][1]))],
         "disorder": [_norm(tail_ab[1][0]), _norm(tail_ab[2][0])],
         "disorder_tiers": [max(1, tail_ab[1][1]), max(1, tail_ab[2][1])],
     }
 
-    # 5 Equipment slots
+    # 5 Equipment slots (supports standard 18B records, extended records, and implicit-empty slot 4)
     eq_off = cur
-    equipment: dict[str, dict[str, Any] | None] = {}
-    for slot_key in EQUIP_SLOT_KEYS:
-        ver = _u32(dec, cur)
-        present = dec[cur + 4]
-        cur += 5
-        if present:
-            item_id, cur = _read_u64_str(dec, cur)
-            sub_name, cur = _read_u64_str(dec, cur)
-            charges, f1, f2, seq_id = struct.unpack_from("<iIII", dec, cur)
-            tail_b = dec[cur + 16]
-            after_b = dec[cur + 17]
-            cur += 18
-            equipment[slot_key] = {
-                "item_id": item_id,
-                "sub_name": sub_name,
-                "charges": charges,
-                "field1": f1,
-                "field2": f2,
-                "seq_id": seq_id,
-                "tail_byte": tail_b,
-                "after_tail_byte": after_b,
-                "version": ver,
-            }
-        else:
-            equipment[slot_key] = None
+    equipment, _, cur = _parse_equipment_section(dec, eq_off)
 
     # Class + level + xp + birthday + death_day
     cls_off = cur
@@ -346,7 +644,8 @@ def patch_cat_blob(wrapped: bytes, changes: dict[str, Any], current_day: int, ne
     marker_len = _u64(buf, name_end)
     after_tag = name_end + 8 + marker_len
 
-    mbase = after_tag + 92
+    _, p_after = _read_u64_str(buf, after_tag + 16)
+    mbase = p_after + 64
     vbase = mbase + 296
     _, voice_end = _read_u64_str(buf, vbase + 8)
     stats_off = voice_end + 8
@@ -354,33 +653,10 @@ def patch_cat_blob(wrapped: bytes, changes: dict[str, Any], current_day: int, ne
     old_inj, hp_off = _read_u64_str(buf, inj_str_off)
     ab_off = hp_off + 14
 
-    cur = ab_off
-    run_items: list[str] = []
-    for _ in range(11):
-        s, cur = _read_u64_str(buf, cur)
-        run_items.append(s)
-    p1_tier = _u32(buf, cur)
-    cur += 4
-    tail_ab: list[tuple[str, int]] = []
-    for _ in range(3):
-        s, cur = _read_u64_str(buf, cur)
-        t = _u32(buf, cur)
-        cur += 4
-        tail_ab.append((s, t))
-    ab_end = cur
-
+    dec_ro = bytes(buf)
+    run_items, p1_tier, tail_ab, ab_end = _parse_ability_section(dec_ro, ab_off)
     eq_off = ab_end
-    eq_slots: list[bytes] = []
-    for _ in range(5):
-        s_start = cur
-        present = buf[cur + 4]
-        cur += 5
-        if present:
-            _, cur = _read_u64_str(buf, cur)
-            _, cur = _read_u64_str(buf, cur)
-            cur += 18
-        eq_slots.append(bytes(buf[s_start:cur]))
-    eq_end = cur
+    _, eq_slots, eq_end = _parse_equipment_section(dec_ro, eq_off)
 
     cls_off = eq_end
     old_cls, cls_after = _read_u64_str(buf, cls_off)
@@ -406,8 +682,8 @@ def patch_cat_blob(wrapped: bytes, changes: dict[str, Any], current_day: int, ne
         flags &= ~0x4000
     struct.pack_into("<H", mid, 8, flags)
 
-    # Mutations (relative offset 92)
-    rmbase = 92
+    # Mutations (relative offset mbase - after_tag)
+    rmbase = mbase - after_tag
     if "mutations" in changes:
         muts = changes["mutations"]
         old_coat = _u32(mid, rmbase + 4)
@@ -492,7 +768,7 @@ def patch_cat_blob(wrapped: bytes, changes: dict[str, Any], current_day: int, ne
             new_run[i] = val if val else "None"
     new_p1_tier = p1_tier
     if "passive" in ab_ch and len(ab_ch["passive"]) > 0:
-        new_run[10] = ab_ch["passive"][0] or "None"
+        new_run[-1] = ab_ch["passive"][0] or "None"
     if "passive_tiers" in ab_ch and len(ab_ch["passive_tiers"]) > 0:
         new_p1_tier = max(1, min(2, int(ab_ch["passive_tiers"][0])))
 

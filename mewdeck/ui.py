@@ -923,11 +923,12 @@ class SavePicker(Screen):
 
     def draw(self, surf) -> None:
         top = HEADER_H + 34
-        branding.draw_cat_emblem(surf, PAD + 52, top + 58, 40)
-        tx = PAD + 128
-        text(surf, "Pick a campaign", (tx, top + 6), 52, TEXT, "black")
+        branding.draw_cat_emblem(surf, PAD + 56, top + 58, 44)
+        tx = PAD + 132
+        title_img = branding.inked_text("Pick a campaign", 56, TEXT, "display", 3, INK, (2, 3))
+        surf.blit(title_img, (tx - 4, top))
         text(surf, "Read straight from your Proton prefix. Edits only land when you press Save.",
-             (tx, top + 72), 27, DIM, maxw=W - tx - PAD - 300)
+             (tx, top + 74), 26, DIM, maxw=W - tx - PAD - 300)
         n = len(self.list.rows)
         if n:
             text(surf, plural(n, "campaign") + " found", (W - PAD, top + 90), 22, FAINT, "black", anchor="midright")
@@ -975,6 +976,7 @@ class Hub(Screen):
         "Home": "Gold",
         "Adventure": "Boss",
         "Cats": "Collar",
+        "Rooms": "Heart",
         "Breeding": "Heart",
         "Items": "Treasure",
         "Furniture": "Shield",
@@ -4322,9 +4324,10 @@ class App:
             text(s, "« Back", br.center, 24, ACCENT if br.collidepoint(mpos) else TEXT, "black", anchor="center")
             lx = br.right + 20
         cy = HEADER_H // 2
-        branding.draw_cat_emblem(s, lx + 30, cy + 1, 22)
-        r = text(s, "Mew", (lx + 66, cy), 44, TEXT, "black", anchor="midleft")
-        r = text(s, "Deck", (r.right, cy), 44, ACCENT, "black", anchor="midleft")
+        branding.draw_cat_emblem(s, lx + 30, cy, 24)
+        wm = branding.wordmark_surface(54)
+        r = wm.get_rect(midleft=(lx + 68, cy + 1))
+        s.blit(wm, r)
         crumbs = [x.title for x in self.stack[1:] if x.title and not isinstance(x, Confirm)]
         if self.save and crumbs:
             crumbs[0] = self.save.stem

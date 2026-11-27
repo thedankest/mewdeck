@@ -363,6 +363,104 @@ def test_steam_shortcut_preserves_appid_and_artwork():
     assert ss._entry_appid(reloaded["shortcuts"]["0"]) == steam_assigned
 
 
+def test_jester_cat_variable_tag_extended_abilities_and_fallback():
+    """Ensure Jester cats with non-'None' tag strings, extended abilities, or non-standard equip slots always parse."""
+    from mewdeck import catblob as cb
+    from mewdeck.vendor import mewparser as mp
+
+    real = os.environ.get("MEWDECK_TEST_SAVE")
+    if not real or not Path(real).is_file():
+        return
+    c = sqlite3.connect(real)
+    raw_blob = c.execute("SELECT data FROM cats LIMIT 1").fetchone()[0]
+    c.close()
+
+    # 1. Patch a real cat into a Jester with a longer tag string at after_tag+16 ("JesterCollar")
+    jester_blob = cb.patch_cat_blob(
+        bytes(raw_blob),
+        {
+            "name": "Jolly",
+            "class": "Jester",
+            "abilities": {
+                "active": ["DefaultMove", "BasicMelee", "SmartMetronome", "RNGCannon", None, None],
+                "passive": ["SuperLuck", "Goofball"],
+                "passive_tiers": [2, 1],
+            },
+        },
+        current_day=129,
+    )
+    dec, variant = mp.decompress_cat_blob(jester_blob)
+    nl = cb._u64(dec, 0x0C)
+    ne = 0x14 + nl * 2
+    ml = cb._u64(dec, ne)
+    at = ne + 8 + ml
+    _, old_p_after = cb._read_u64_str(dec, at + 16)
+    # Replace "None" (4 bytes) with "JesterCollar" (12 bytes) -> shifts mbase by +8 bytes!
+    shifted = dec[: at + 16] + cb._pack_u64_str("JesterCollar") + dec[old_p_after:]
+    wrapped_shifted = mp.recompress_cat_blob(shifted, variant)
+
+    parsed = cb.parse_cat_blob(wrapped_shifted, 999, "(ADVENTURE)", 129)
+    assert parsed["name"] == "Jolly"
+    assert parsed["class"] == "Jester"
+    assert parsed["abilities"]["passive"] == ["SuperLuck", "Goofball"]
+    assert not parsed.get("_fallback")
+
+    # Round-trip patching that shifted Jester blob must also succeed cleanly!
+    patched2 = cb.patch_cat_blob(wrapped_shifted, {"stats": {k: 7 for k in cb.STAT_NAMES}}, 129)
+    parsed2 = cb.parse_cat_blob(patched2, 999, "(ADVENTURE)", 129)
+    assert parsed2["class"] == "Jester" and all(v == 7 for v in parsed2["stats"].values())
+
+    # 2. Simulate an unknown/extra-bytes equipment layout -> fallback parser must STILL recover Jester cat!
+    eq_off = parsed["_eq_off"]
+    corrupted_eq = (
+        shifted[:eq_off]
+        + b"\x05\x00\x00\x00\x01"
+        + cb._pack_u64_str("WeirdJesterHat")
+        + cb._pack_u64_str("")
+        + b"\xAA" * 29
+        + shifted[parsed["_cls_off"]:]
+    )
+    parsed_fb = cb.parse_cat_blob(mp.recompress_cat_blob(corrupted_eq, variant), 1000, "(ADVENTURE)", 129)
+    assert parsed_fb["name"] == "Jolly" and parsed_fb["class"] == "Jester" and parsed_fb.get("_fallback")
+
+
+def test_house_room_rules_and_furniture_guide():
+    """Verify rule-based room zoning (Retired->Attic, Kittens->Nursery, Fighters->Large) + fight avoidance + guide."""
+    from mewdeck import breeding as br
+
+    real = os.environ.get("MEWDECK_TEST_SAVE")
+    if not real or not Path(real).is_file():
+        return
+    snap = sf.snapshot(Path(real))
+    parsed = snap.parsed
+    specs = br.compute_room_specs(parsed)
+    by_name = {s.name: s for s in specs}
+    if "Attic" in by_name and len(specs) >= 2:
+        assert by_name["Attic"].role == "retirement"
+    if "Floor1_Small" in by_name:
+        assert by_name["Floor1_Small"].role == "nursery"
+    if "Floor1_Large" in by_name:
+        assert by_name["Floor1_Large"].role == "fighters"
+
+    # Rule persistence round-trip in temp file
+    tmp_rules = Path(tempfile.mkdtemp()) / "room_rules.json"
+    br.save_room_rules(specs, tmp_rules)
+    loaded = br.load_room_rules(tmp_rules)
+    assert set(loaded.keys()) == {s.name for s in specs}
+
+    # Deterministic routing with Hater separation + Storage furniture recommendations
+    plan = br.apply_room_rules(parsed, specs, goal_id="balanced", avoid_haters=True)
+    assert len(plan.plans) == len(specs)
+    assert plan.total_conflicts == 0
+    for rp in plan.plans:
+        guide = br.furniture_guide_for(rp.spec.role)
+        assert guide["prioritize"] and guide["tip"]
+    # Verify every house cat is accounted for exactly once
+    house_keys = {c["key"] for c in parsed["cats"] if c["room"] and c["room"] != "(ADVENTURE)" and not c["dead"]}
+    routed_keys = {c["key"] for rp in plan.plans for c in rp.cats}
+    assert routed_keys == house_keys
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

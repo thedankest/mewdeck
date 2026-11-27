@@ -1737,7 +1737,8 @@ class FurnitureTab:
             kind, obj, info = cur.data
             ico_box = pygame.Rect(box.right - 28 - 84, by, 84, 84)
             draw_sprite_badge(ui, surf, "furniture", info.get("id"), ico_box)
-            ui.text(surf, info["name"], (bx, by), 32, ui.TEXT, "black", maxw=bw - 98)
+            t_sz = next((sz for sz in (32, 28, 25) if ui.F(sz, "black").size(info["name"])[0] <= bw - 98), 25)
+            ui.text(surf, info["name"], (bx, by + (32 - t_sz) // 2), t_sz, ui.TEXT, "black", maxw=bw - 98)
             by += 44
             px = bx
             if info.get("set"):
@@ -1760,7 +1761,7 @@ class FurnitureTab:
                 by += 44
             if info.get("desc"):
                 mk_now = self.modes[self.m][0]
-                desc_bottom = (box.bottom - 232) if mk_now.startswith("room:") else (box.bottom - 48)
+                desc_bottom = (box.bottom - 266) if mk_now.startswith("room:") else (box.bottom - 48)
                 for ln in wrap_lines(ui.F(23), info["desc"], bw, max_lines=4):
                     if by + 28 > desc_bottom:
                         break
@@ -1768,9 +1769,10 @@ class FurnitureTab:
                     by += 28
                 by += 10
 
-        # Room totals panel at bottom of right card
+        # Room totals + Furniture Priority Guide panel at bottom of right card
         mk = self.modes[self.m][0]
         if mk.startswith("room:"):
+            from . import breeding as br
             rm = mk.split(":", 1)[1]
             rems = set(self.app.pending.furn_remove)
             totals: dict[str, int] = {}
@@ -1778,15 +1780,25 @@ class FurnitureTab:
                 if f["room"] == rm and f["key"] not in rems:
                     for ek, ev in gd.furniture_info(f["furniture_id"]).get("effects", {}).items():
                         totals[ek] = totals.get(ek, 0) + ev
-            rbox = pygame.Rect(bx, box.bottom - 220, bw, 196)
+            specs = br.compute_room_specs(self.app.snap.parsed, br.load_room_rules())
+            role = next((s.role for s in specs if s.name == rm), "general")
+            guide = br.furniture_guide_for(role)
+            rbox = pygame.Rect(bx, box.bottom - 256, bw, 232)
             ui.rrect(surf, rbox, ui.CARD_HI, 18)
-            ui.text(surf, f"{rm.replace('_', ' ').upper()} TOTALS", (rbox.x + 20, rbox.y + 16), 18, ui.ACCENT, "black")
-            ty = rbox.y + 48
+            ui.text(surf, f"{rm.replace('_', ' ').upper()} · {br.ROOM_ROLE_SHORT[role].upper()}",
+                    (rbox.x + 20, rbox.y + 14), 17, ui.ACCENT, "black")
+            ui.text(surf, f"Priority: {guide['short']}", (rbox.x + 20, rbox.y + 38), 18, ui.GOOD, "bold", maxw=rbox.w - 40)
+            ty = rbox.y + 68
             for ek, ev in sorted(totals.items()):
-                col = ui.GOOD if ev > 0 else ui.BAD
-                ui.text(surf, ek, (rbox.x + 20, ty), 22, ui.DIM)
-                ui.text(surf, f"{'+' if ev > 0 else ''}{ev}", (rbox.right - 20, ty), 22, col, "black", anchor="topright")
-                ty += 28
+                if ty + 26 > rbox.bottom - 10:
+                    break
+                is_prio = ek in guide["prioritize"]
+                is_avoid = ek in guide["avoid"]
+                col = ui.BAD if (ev < 0 or (is_avoid and ev > 0)) else (ui.GOOD if ev > 0 else ui.DIM)
+                tag = " *" if is_prio else (" !" if is_avoid and ev > 0 else "")
+                ui.text(surf, f"{ek}{tag}", (rbox.x + 20, ty), 21, ui.TEXT if is_prio else ui.DIM, "bold" if is_prio else "semi")
+                ui.text(surf, f"{'+' if ev > 0 else ''}{ev}", (rbox.right - 20, ty), 21, col, "black", anchor="topright")
+                ty += 27
         else:
             add_n = len(self.app.pending.furn_add)
             rem_n = len(self.app.pending.furn_remove)

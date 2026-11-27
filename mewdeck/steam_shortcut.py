@@ -231,8 +231,8 @@ def _draw_art_surfaces() -> dict[str, Any]:
         surf.blit(sh, r.move(max(3, size // 18), max(4, size // 14)))
         surf.blit(img, r)
 
-    def subtitle(text, size, color=b.DIM):
-        return b.inked_text(text, size, color, "black", max(2, size // 9), b.INK, (0, max(2, size // 10)), size * 0.16)
+    def subtitle(text, size, color=b.TEXT):
+        return b.inked_text(text, size, color, "display", max(2, size // 8), b.INK, (0, max(2, size // 10)), size * 0.08)
 
     def rule(surf, cx, cy, half, gapw):
         for sx in (-1, 1):
@@ -242,10 +242,8 @@ def _draw_art_surfaces() -> dict[str, Any]:
             d = cx + sx * (gapw + half + 10)
             pygame.draw.polygon(surf, b.ACCENT, [(d, cy - 7), (d + 7, cy), (d, cy + 7), (d - 7, cy)])
 
-    def fit_wordmark(maxw, size, **kw):
-        while size > 40 and b.wordmark(size, **kw).get_width() > maxw:
-            size -= 2
-        return b.wordmark(size, **kw)
+    def fit_wordmark(maxw, maxh=150):
+        return b.wordmark_fit(maxw, maxh)
 
     def scallop_strip(surf, top, h, color=b.ACCENT, bump=18):
         w = surf.get_width()
@@ -255,39 +253,35 @@ def _draw_art_surfaces() -> dict[str, Any]:
         pygame.draw.rect(surf, color, (0, top, w, h))
         for x in range(-bump, w + bump, bump * 2):
             pygame.draw.circle(surf, color, (x + bump, top), bump)
-        hi = b.mix(color, b.CREAM, 0.45)
-        for x in range(-bump, w + bump, bump * 2):
-            pygame.draw.arc(surf, hi, (x + 4, top - bump + 4, bump * 2 - 8, bump * 2 - 8), math.radians(60), math.radians(150), 3)
 
     out: dict[str, Any] = {}
 
     # 1. Portrait capsule 600x900 (<appid>p.png) — Big Picture & Library main tile
     s = b.sketch_canvas(600, 900, seed=11)
-    b.glow(s, 300, 330, 430, b.ACCENT, 80)
-    tags(s, [("Mage", 70, 92, 84, 14), ("Fighter", 536, 120, 80, -12), ("Necromancer", 58, 520, 76, -8),
-             ("Druid", 548, 500, 78, 10), ("Jester", 548, 762, 58, -16), ("Thief", 52, 764, 58, 12)], 70)
-    for i, (x, y) in enumerate(((120, 250), (150, 200), (452, 250), (480, 200))):
+    b.glow(s, 300, 315, 390, b.ACCENT, 55)
+    tags(s, [("Mage", 68, 92, 82, 14), ("Fighter", 536, 118, 78, -12), ("Necromancer", 58, 500, 74, -8),
+             ("Druid", 548, 490, 76, 10), ("Jester", 546, 746, 60, -16), ("Thief", 54, 748, 60, 12)], 68)
+    for x, y in ((118, 238), (148, 190), (454, 238), (482, 190)):
         b.draw_paw(s, x, y, 11, (*b.LINE, 70), 20 if x < 300 else -20)
-    b.draw_badge(s, 300, 318, 214, 132)
-    b.blit_anchored(s, b.wordmark(116), (300, 612))
-    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 27, b.TEXT), (300, 696))
-    rule(s, 300, 742, 70, 40)
-    b.draw_cat_emblem(s, 300, 742, 15, detailed=False)
-    scallop_strip(s, 806, 94)
-    b.blit_anchored(s, b.inked_text("STEAM DECK  ·  GAMEPAD READY", 23, b.INK, "black", 0, b.INK, (0, 0), 2.5), (300, 856))
-    for x in (34, 566):
-        b.draw_paw(s, x, 858, 11, (*b.INK, 200))
+    b.draw_badge(s, 300, 312, 212, 144)
+    b.blit_anchored(s, fit_wordmark(528, 134), (300, 606))
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 30, b.TEXT), (300, 696))
+    rule(s, 300, 744, 72, 34)
+    b.draw_paw(s, 300, 744, 13, b.ACCENT)
+    scallop_strip(s, 808, 92)
+    b.blit_anchored(s, b.inked_text("STEAM DECK  ·  GAMEPAD READY", 26, b.INK, "display", 0, b.INK, (0, 0), 1.8), (300, 856))
+    for x in (38, 562):
+        b.draw_paw(s, x, 858, 11, (*b.INK, 210))
     out["p.png"] = s
 
     # 2. Wide / recent capsule 920x430 (<appid>.png) — Home "Most Recent" tile
     s = b.sketch_canvas(920, 430, seed=12)
-    b.glow(s, 215, 205, 330, b.ACCENT, 85)
-    b.glow(s, 640, 180, 360, b.ACCENT, 26)
-    tags(s, [("Mage", 868, 64, 72, -12), ("Necromancer", 860, 360, 66, 10), ("Hunter", 440, 50, 54, 8)], 55)
-    b.draw_badge(s, 212, 206, 162, 100)
-    b.blit_anchored(s, fit_wordmark(486, 112), (402, 160), "midleft")
-    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 24, b.TEXT), (414, 244), "midleft")
-    x = 440
+    b.glow(s, 212, 206, 310, b.ACCENT, 62)
+    tags(s, [("Mage", 868, 64, 70, -12), ("Necromancer", 860, 358, 64, 10), ("Hunter", 442, 48, 54, 8)], 54)
+    b.draw_badge(s, 210, 204, 158, 108)
+    b.blit_anchored(s, fit_wordmark(494, 126), (398, 152), "midleft")
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 28, b.TEXT), (410, 240), "midleft")
+    x = 434
     for name in ("Fighter", "Mage", "Hunter", "Necromancer", "Druid", "Thief", "Jester"):
         sticker(s, name, x, 322, 58, 0)
         x += 68
@@ -297,10 +291,10 @@ def _draw_art_surfaces() -> dict[str, Any]:
 
     # 3. Hero banner 1920x620 (<appid>_hero.png — no text; Steam overlays the logo bottom-left)
     s = b.sketch_canvas(1920, 620, seed=13, grid=48)
-    b.glow(s, 1460, 300, 720, b.ACCENT, 95)
+    b.glow(s, 1460, 300, 680, b.ACCENT, 70)
     tags(s, [("Tank", 960, 96, 84, 12), ("Medic", 1020, 300, 76, -10), ("Psychic", 1870, 560, 80, 14),
-             ("Monk", 1880, 64, 70, -8), ("Colorless", 840, 470, 70, 6)], 60)
-    for i in range(7):  # paw trail walking toward the badge
+             ("Monk", 1880, 64, 70, -8), ("Colorless", 840, 470, 70, 6)], 58)
+    for i in range(7):
         x = 880 + i * 78
         y = 560 - i * 22 + (14 if i % 2 else -14)
         b.draw_paw(s, x, y, 13, (*b.mix(b.LINE, b.ACCENT, 0.3), 70 + i * 12), -70)
@@ -310,23 +304,22 @@ def _draw_art_surfaces() -> dict[str, Any]:
     for name, deg in orbit:
         a = math.radians(deg)
         sticker(s, name, round(cx + math.cos(a) * 345), round(cy + math.sin(a) * 250), 92, -deg / 8)
-    b.draw_badge(s, cx, cy, 236, 146)
-    # left dark zone so Steam's bottom-left logo pops
+    b.draw_badge(s, cx, cy, 234, 160)
     ramp = pygame.Surface((256, 1), pygame.SRCALPHA)
     for i in range(256):
-        ramp.set_at((i, 0), (*b.INK, int(215 * (1 - i / 255) ** 1.6)))
+        ramp.set_at((i, 0), (*b.INK, int(218 * (1 - i / 255) ** 1.6)))
     s.blit(pygame.transform.smoothscale(ramp, (1050, 620)), (0, 0))
     floor = pygame.Surface((1, 64), pygame.SRCALPHA)
     for i in range(64):
-        floor.set_at((0, i), (*b.INK, int(140 * (i / 63) ** 2)))
+        floor.set_at((0, i), (*b.INK, int(145 * (i / 63) ** 2)))
     s.blit(pygame.transform.smoothscale(floor, (1920, 260)), (0, 360))
     out["_hero.png"] = s
 
     # 4. Transparent logo 800x260 (<appid>_logo.png + <appid>_logo.json)
     s = pygame.Surface((800, 260), pygame.SRCALPHA)
-    b.draw_cat_emblem(s, 122, 138, 88)
-    b.blit_anchored(s, fit_wordmark(552, 124, outline=9, shadow=7), (232, 108), "midleft")
-    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 30, b.TEXT), (244, 198), "midleft")
+    b.draw_cat_emblem(s, 118, 132, 86)
+    b.blit_anchored(s, fit_wordmark(556, 146), (224, 108), "midleft")
+    b.blit_anchored(s, subtitle("MEWGENICS SAVE EDITOR", 32, b.TEXT), (238, 204), "midleft")
     out["_logo.png"] = s
     out["_logo.json"] = json.dumps(
         {"logoPosition": {"pinnedPosition": "BottomLeft", "widthPct": 44, "heightPct": 50}}

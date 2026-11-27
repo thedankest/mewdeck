@@ -1,11 +1,8 @@
-"""MewDeck brand kit: hand-inked Mewgenics sketchbook cat emblem, wordmark, badge and app icon.
+"""MewDeck brand kit: hand-inked Mewgenics SVG cat emblem, MEWDECK! wordmark, Chewy display font & app icon.
 
-Everything is drawn supersampled once and cached, so live UI use is just a blit:
-
-    from mewdeck import branding
-    logo = branding.get_emblem_surface(64)          # cached Surface, blit every frame
-    branding.draw_cat_emblem(screen, x, y, 26)      # cached too (keyed by size/colours)
-    icon = branding.draw_app_icon(256)              # 256x256 RGBA app / Steam / desktop icon
+Assets in `mewdeck/assets/` (`mewdeck_cat.svg`, `mewdeck_title.svg`) are hand-crafted SVGs rasterized
+offline into bundled PNGs (`mewdeck_cat.png`, `mewdeck_title.png`) so runtime requires only pygame
+with zero extra dependencies and ~3 us cached blits in the live UI.
 
 This module deliberately does not import `ui` (ui imports us), so it carries its own copy of the
 sketchbook palette and font loader.
@@ -30,14 +27,19 @@ LINE = (116, 104, 92)
 TEXT = (246, 239, 224)
 DIM = (188, 176, 158)
 ACCENT = (244, 182, 72)
-EAR_PINK = (238, 150, 132)
-NOSE_PINK = (232, 124, 124)
 CREAM = (255, 248, 232)
+PARCHMENT = (232, 221, 198)
 
 HERE = Path(__file__).parent
 FONT_DIR = HERE / "fonts"
+ASSETS_DIR = HERE / "assets"
 GAMEDATA = HERE / "gamedata"
-_FONT_FILES = {"semi": "Nunito-600.ttf", "bold": "Nunito-800.ttf", "black": "Nunito-900.ttf"}
+_FONT_FILES = {
+    "semi": "Nunito-600.ttf",
+    "bold": "Nunito-800.ttf",
+    "black": "Nunito-900.ttf",
+    "display": "Chewy-Regular.ttf",
+}
 
 Color = tuple
 
@@ -62,6 +64,11 @@ def font(size: int, weight: str = "black") -> pygame.font.Font:
         return f
 
 
+def display_font(size: int) -> pygame.font.Font:
+    """Chunky hand-brushed Mewgenics-style display font (Chewy Regular, SIL OFL/Apache)."""
+    return font(size, "display")
+
+
 def _maybe_convert(s: pygame.Surface) -> pygame.Surface:
     """convert_alpha() when a display exists (fastest blits in the live UI); no-op headless."""
     try:
@@ -73,12 +80,10 @@ def _maybe_convert(s: pygame.Surface) -> pygame.Surface:
 
 
 def _mask_to(layer: pygame.Surface, mask: pygame.Surface) -> None:
-    """Clip `layer` to the opaque area of `mask` (white RGBA silhouette)."""
     layer.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
 
 def _dilate(sil: pygame.Surface, radius: float) -> pygame.Surface:
-    """Grow an alpha silhouette by `radius` px (used for the thick hand-inked outline)."""
     out = pygame.Surface(sil.get_size(), pygame.SRCALPHA)
     steps = 24
     for ring in (radius, radius * 0.66, radius * 0.33):
@@ -89,132 +94,56 @@ def _dilate(sil: pygame.Surface, radius: float) -> pygame.Surface:
     return out
 
 
-def _tinted(sil: pygame.Surface, color: Color, alpha: int = 255) -> pygame.Surface:
-    s = sil.copy()
-    s.fill((*color[:3], alpha), special_flags=pygame.BLEND_RGBA_MULT)
-    return s
+# --------------------------------------------------------------------------- bundled SVG-rendered PNG loaders
+
+@lru_cache(maxsize=4)
+def _load_asset_png(name: str) -> pygame.Surface | None:
+    p = ASSETS_DIR / name
+    if not p.is_file():
+        return None
+    try:
+        return pygame.image.load(str(p))
+    except pygame.error:
+        return None
 
 
-# --------------------------------------------------------------------------- cat emblem
+def _tint_surface(img: pygame.Surface, color: Color) -> pygame.Surface:
+    """Subtly mute/tint the scruffy cat when caller passes a subdued color (e.g. empty state)."""
+    if tuple(color[:3]) in (ACCENT, CREAM, TEXT, PARCHMENT):
+        return img
+    # Muted grayscale-tinted variant for empty states (e.g. color=LINE)
+    out = img.copy()
+    out.fill((*mix(color, CREAM, 0.25), 255), special_flags=pygame.BLEND_RGBA_MULT)
+    return out
 
-def _emblem_render(r: int, color: Color, ink: Color, eye: Color, detailed: bool) -> pygame.Surface:
-    """Draw the emblem supersampled; returns an RGBA surface whose centre is the emblem origin."""
-    r = max(6, int(r))
-    k = 4 if r < 60 else 3 if r < 130 else 2
-    half = int(math.ceil(r * 1.42)) + 8
-    D = half * 2
-    S = D * k
-    R = r * k
-    C = S / 2
-    whiskers = detailed and r >= 34
-    mouth = detailed and r >= 22
 
-    def P(x: float, y: float) -> tuple[float, float]:
-        return (C + x * R, C + y * R)
-
-    def poly(points):
-        return [P(x, y) for x, y in points]
-
-    def ell(cx, cy, rx, ry):
-        return pygame.Rect(round(C + (cx - rx) * R), round(C + (cy - ry) * R), round(2 * rx * R), round(2 * ry * R))
-
-    head = ell(0, 0.14, 0.86, 0.70)
-    ear_l = poly([(-0.86, -0.04), (-0.76, -0.98), (-0.14, -0.50)])
-    ear_r = poly([(0.86, -0.04), (0.14, -0.50), (0.64, -1.0), (0.685, -0.86), (0.56, -0.76), (0.725, -0.66)])
-    tuft_l = poly([(-0.80, 0.16), (-1.02, 0.36), (-0.74, 0.44)])
-    tuft_r = poly([(0.80, 0.16), (1.02, 0.36), (0.74, 0.44)])
-
-    def silhouette(col, dx=0.0, dy=0.0) -> pygame.Surface:
-        s = pygame.Surface((S, S), pygame.SRCALPHA)
-        off = (dx * R, dy * R)
-        pygame.draw.ellipse(s, col, head.move(*off))
-        for shape in (ear_l, ear_r, tuft_l, tuft_r):
-            pygame.draw.polygon(s, col, [(x + off[0], y + off[1]) for x, y in shape])
-        return s
-
-    mask = silhouette((255, 255, 255, 255))
-    stroke = R * (0.085 if detailed else 0.11)
-    inked = _dilate(mask, stroke)
-
-    canvas = pygame.Surface((S, S), pygame.SRCALPHA)
-    # soft ink drop shadow (sketchbook sticker depth)
-    canvas.blit(_tinted(inked, ink, 105), (round(R * 0.05), round(R * 0.08)))
-    canvas.blit(_tinted(inked, ink), (0, 0))
-
-    # body fill with warm rim highlight crescent + lower shading, clipped to the silhouette
-    body = pygame.Surface((S, S), pygame.SRCALPHA)
-    body.blit(silhouette(mix(color, ink, 0.16)), (0, 0))         # chin/underside shade
-    body.blit(silhouette(mix(color, CREAM, 0.42), 0, -0.07), (0, 0))  # warm rim light
-    body.blit(silhouette(color, 0.045, -0.01), (0, 0))
-    if r >= 16:  # tabby forehead stripes
-        stripe = mix(color, ink, 0.34)
-        for pts in (
-            [(-0.07, -0.58), (0.07, -0.58), (0.0, -0.30)],
-            [(-0.33, -0.50), (-0.20, -0.56), (-0.20, -0.33)],
-            [(0.33, -0.50), (0.20, -0.56), (0.20, -0.33)],
-        ):
-            pygame.draw.polygon(body, stripe, poly(pts))
-    _mask_to(body, mask)
-    canvas.blit(body, (0, 0))
-
-    # inner ears
-    inner = mix(EAR_PINK, color, 0.18)
-    pygame.draw.polygon(canvas, inner, poly([(-0.70, -0.16), (-0.70, -0.80), (-0.32, -0.47)]))
-    pygame.draw.polygon(canvas, inner, poly([(0.70, -0.16), (0.32, -0.47), (0.52, -0.71), (0.67, -0.60)]))
-
-    # cream muzzle patch
-    pygame.draw.ellipse(canvas, mix(color, CREAM, 0.62), ell(0, 0.44, 0.31, 0.21))
-    if detailed and r >= 22:  # cheek blush
-        blush = pygame.Surface((S, S), pygame.SRCALPHA)
-        for sx in (-1, 1):
-            pygame.draw.ellipse(blush, (*EAR_PINK, 120), ell(sx * 0.58, 0.36, 0.12, 0.07))
-        canvas.blit(blush, (0, 0))
-
-    # eyes: big inked ovals, warm glint
-    for sx in (-1, 1):
-        ex = sx * 0.34
-        pygame.draw.ellipse(canvas, eye, ell(ex, 0.08, 0.135, 0.175))
-        pygame.draw.circle(canvas, CREAM, P(ex + 0.05, 0.015), R * 0.052)
-        if detailed and r >= 22:
-            pygame.draw.circle(canvas, CREAM, P(ex - 0.045, 0.15), R * 0.022)
-
-    # nose
-    nose = poly([(-0.085, 0.29), (0.085, 0.29), (0.0, 0.385)])
-    pygame.draw.polygon(canvas, NOSE_PINK, nose)
-    pygame.draw.polygon(canvas, ink, nose, max(2, round(stroke * 0.34)))
-
-    lw = max(2, round(stroke * (0.42 if r >= 60 else 0.5)))
-
-    def stroke_line(pts):
-        pp = poly(pts)
-        pygame.draw.lines(canvas, ink, False, pp, lw)
-        for p in pp:
-            pygame.draw.circle(canvas, ink, p, lw / 2)
-
-    if mouth:  # little 'w' cat mouth
-        stroke_line([(0, 0.385), (0, 0.43)])
-        stroke_line([(-0.16, 0.43), (-0.12, 0.49), (-0.055, 0.50), (0, 0.43), (0.055, 0.50), (0.12, 0.49), (0.16, 0.43)])
-    if whiskers:
-        for sx in (-1, 1):
-            for y0, y1, x1 in ((0.38, 0.27, 1.26), (0.44, 0.45, 1.30), (0.50, 0.63, 1.20)):
-                stroke_line([(sx * 0.42, y0), (sx * x1, y1)])
-
-    return pygame.transform.smoothscale(canvas, (D, D))
-
+# --------------------------------------------------------------------------- cat emblem (SVG-backed)
 
 @lru_cache(maxsize=96)
-def _emblem_cached(r: int, color: Color, ink: Color, eye: Color, detailed: bool) -> pygame.Surface:
-    return _maybe_convert(_emblem_render(r, color, ink, eye, detailed))
+def _emblem_cached(r: int, color: Color) -> pygame.Surface:
+    r = max(6, int(r))
+    size = max(16, int(round(r * 2.55)))
+    raw = _load_asset_png("mewdeck_cat.png")
+    if raw is not None:
+        scaled = pygame.transform.smoothscale(raw, (size, size))
+        if color != ACCENT:
+            scaled = _tint_surface(scaled, color)
+        return _maybe_convert(scaled)
+    # Minimal fallback if asset PNG is somehow absent
+    s = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(s, PARCHMENT, (size // 2, size // 2), r)
+    pygame.draw.circle(s, INK, (size // 2, size // 2), r, max(2, r // 8))
+    return _maybe_convert(s)
 
 
 def emblem_surface(r: int, color: Color = ACCENT, ink: Color = INK, eye: Color = INK, detailed: bool = True) -> pygame.Surface:
-    """Cached RGBA emblem; its centre is the emblem origin (r = head radius)."""
-    return _emblem_cached(int(round(r)), tuple(color[:3]), tuple(ink[:3]), tuple(eye[:3]), bool(detailed))
+    """Cached RGBA Mewgenics SVG cat emblem; its centre is the emblem origin."""
+    return _emblem_cached(int(round(r)), tuple(color[:3]))
 
 
 def draw_cat_emblem(surf: pygame.Surface, cx: float, cy: float, r: float, color: Color = ACCENT,
                     ink: Color = INK, eye: Color = INK, detailed: bool = True) -> pygame.Rect:
-    """Blit the hand-inked MewDeck cat emblem centred at (cx, cy). Cached after the first call."""
+    """Blit the hand-inked Mewgenics SVG cat emblem centred at (cx, cy). Cached after first call."""
     img = emblem_surface(r, color, ink, eye, detailed)
     rect = img.get_rect(center=(round(cx), round(cy)))
     surf.blit(img, rect)
@@ -223,18 +152,18 @@ def draw_cat_emblem(surf: pygame.Surface, cx: float, cy: float, r: float, color:
 
 @lru_cache(maxsize=32)
 def get_emblem_surface(size: int, color: Color = ACCENT, detailed: bool | None = None) -> pygame.Surface:
-    """A size x size transparent surface with the emblem fitted inside (for headers, icons...)."""
-    size = int(size)
-    r = max(6, int((size - 6) / 2.5))
-    det = size >= 48 if detailed is None else detailed
-    img = _emblem_render(r, tuple(color[:3]), INK, INK, det)
-    out = pygame.Surface((size, size), pygame.SRCALPHA)
-    # nudge down a touch: ears make the visual mass sit high
-    out.blit(img, img.get_rect(center=(size // 2, size // 2 + round(r * 0.07))))
-    return _maybe_convert(out)
+    """A size x size transparent surface with the SVG cat emblem fitted inside."""
+    size = max(16, int(size))
+    raw = _load_asset_png("mewdeck_cat.png")
+    if raw is not None:
+        scaled = pygame.transform.smoothscale(raw, (size, size))
+        if tuple(color[:3]) != ACCENT:
+            scaled = _tint_surface(scaled, tuple(color[:3]))
+        return _maybe_convert(scaled)
+    return emblem_surface(max(6, size // 2), color)
 
 
-# --------------------------------------------------------------------------- typography
+# --------------------------------------------------------------------------- typography & SVG MEWDECK! wordmark
 
 def _render_tracked(text: str, size: int, color: Color, weight: str, tracking: float) -> pygame.Surface:
     f = font(size, weight)
@@ -275,20 +204,35 @@ def blit_anchored(surf: pygame.Surface, img: pygame.Surface, pos, anchor: str = 
     return r
 
 
+@lru_cache(maxsize=32)
+def wordmark_surface(height: int) -> pygame.Surface:
+    """Hand-crafted SVG 'MEWDECK!' logo scaled cleanly to `height` px and cached."""
+    height = max(20, int(height))
+    raw = _load_asset_png("mewdeck_title.png")
+    if raw is not None:
+        rw, rh = raw.get_size()
+        w = max(1, round(rw * height / max(1, rh)))
+        return _maybe_convert(pygame.transform.smoothscale(raw, (w, height)))
+    return _maybe_convert(inked_text("MEWDECK!", height, ACCENT, "display", max(2, height // 14), INK, (3, 4)))
+
+
+@lru_cache(maxsize=32)
+def wordmark_fit(max_w: int, max_h: int) -> pygame.Surface:
+    """Hand-crafted SVG 'MEWDECK!' logo fitted cleanly inside (max_w, max_h)."""
+    raw = _load_asset_png("mewdeck_title.png")
+    if raw is not None:
+        rw, rh = raw.get_size()
+        scale = min(max_w / max(1, rw), max_h / max(1, rh))
+        w, h = max(1, round(rw * scale)), max(1, round(rh * scale))
+        return _maybe_convert(pygame.transform.smoothscale(raw, (w, h)))
+    return wordmark_surface(max_h)
+
+
 @lru_cache(maxsize=16)
 def wordmark(size: int, outline: int | None = None, shadow: int | None = None,
              mew: Color = TEXT, deck: Color = ACCENT) -> pygame.Surface:
-    """Two-tone 'MewDeck' wordmark (cream 'Mew' + gold 'Deck') with ink outline and drop shadow."""
-    o = max(2, round(size * 0.07)) if outline is None else outline
-    sh = max(2, round(size * 0.05)) if shadow is None else shadow
-    a = inked_text("Mew", size, mew, "black", o, INK, (sh, sh))
-    b = inked_text("Deck", size, deck, "black", o, INK, (sh, sh))
-    pad = o + sh + 2
-    gap = -pad * 2 + round(size * 0.02)
-    out = pygame.Surface((a.get_width() + b.get_width() + gap, max(a.get_height(), b.get_height())), pygame.SRCALPHA)
-    out.blit(b, (a.get_width() + gap, 0))  # Deck first so Mew's outline never cuts into it
-    out.blit(a, (0, 0))
-    return out
+    """Backwards-compatible entry point returning the SVG MEWDECK! wordmark sized to ~`size` px tall."""
+    return wordmark_surface(int(round(size * 1.15)))
 
 
 # --------------------------------------------------------------------------- decorative pieces
@@ -314,7 +258,6 @@ def class_tag(name: str, size: int = 64, angle: float = 0.0) -> pygame.Surface |
 
 
 def draw_paw(surf: pygame.Surface, cx: float, cy: float, s: float, color, angle: float = 0.0) -> None:
-    """Small paw print (alpha colours allowed)."""
     size = int(s * 2.6) + 4
     k = 3
     layer = pygame.Surface((size * k, size * k), pygame.SRCALPHA)
@@ -344,7 +287,7 @@ def glow(surf: pygame.Surface, cx: float, cy: float, rad: int, color: Color = AC
 
 
 def sketch_canvas(w: int, h: int, seed: int = 7, grid: int = 44) -> pygame.Surface:
-    """Warm dark cardboard gradient + faint sketchbook grid + paper speckle + soft edge vignette."""
+    """Gritty dark cardboard sketchbook paper + faint ink graph grid + paper speckle + vignette."""
     s = pygame.Surface((w, h))
     for y in range(h):
         pygame.draw.line(s, mix(BG_TOP, BG_BOT, y / max(1, h - 1)), (0, y), (w, y))
@@ -355,39 +298,39 @@ def sketch_canvas(w: int, h: int, seed: int = 7, grid: int = 44) -> pygame.Surfa
         pygame.draw.line(s, grid_col, (0, y), (w, y))
     rnd = random.Random(seed)
     speck = pygame.Surface((w, h), pygame.SRCALPHA)
-    for _ in range(w * h // 520):
-        c = (255, 240, 210, rnd.randint(6, 18)) if rnd.random() < 0.5 else (0, 0, 0, rnd.randint(14, 34))
+    for _ in range(w * h // 420):
+        c = (242, 232, 210, rnd.randint(6, 18)) if rnd.random() < 0.45 else (0, 0, 0, rnd.randint(16, 38))
         speck.fill(c, (rnd.randrange(w), rnd.randrange(h), rnd.choice((1, 1, 2)), rnd.choice((1, 1, 2))))
     s.blit(speck, (0, 0))
     vign = pygame.Surface((32, 32), pygame.SRCALPHA)
     for yy in range(32):
         for xx in range(32):
             d = max(abs(xx - 15.5), abs(yy - 15.5)) / 16
-            vign.set_at((xx, yy), (*INK, int(max(0.0, d - 0.55) / 0.45 * 150)))
+            vign.set_at((xx, yy), (*INK, int(max(0.0, d - 0.50) / 0.50 * 165)))
     s.blit(pygame.transform.smoothscale(vign, (w, h)), (0, 0))
     return s
 
 
 def draw_badge(surf: pygame.Surface, cx: float, cy: float, R: int, emblem_r: int | None = None,
                fill: Color = CARD_HI, rim: Color = ACCENT) -> None:
-    """Round sketchbook medallion: ink ring, gold rim, stitched cardboard disk, inked cat emblem."""
+    """Hand-inked gritty Mewgenics medallion: heavy ink ring, warm bone-gold rim, cardboard disk & SVG cat."""
     k = 3
-    D = (R + 16) * 2
+    D = (R + 18) * 2
     big = pygame.Surface((D * k, D * k), pygame.SRCALPHA)
     c = D * k / 2
     Rk = R * k
-    pygame.draw.circle(big, (*INK, 120), (c + 7 * k, c + 10 * k), Rk + 6 * k)
-    pygame.draw.circle(big, INK, (c, c), Rk + 6 * k)
+    pygame.draw.circle(big, (*INK, 140), (c + 8 * k, c + 11 * k), Rk + 7 * k)
+    pygame.draw.circle(big, INK, (c, c), Rk + 7 * k)
     pygame.draw.circle(big, rim, (c, c), Rk)
-    pygame.draw.circle(big, INK, (c, c), Rk * 0.905)
-    inner = Rk * 0.88
+    pygame.draw.circle(big, INK, (c, c), Rk * 0.90)
+    inner = Rk * 0.87
     disk = pygame.Surface((D * k, D * k), pygame.SRCALPHA)
     steps = 48
-    for i in range(steps):  # top-lit cardboard gradient
+    for i in range(steps):
         y0 = c - inner + 2 * inner * i / steps
-        pygame.draw.rect(disk, mix(mix(fill, CREAM, 0.10), mix(fill, INK, 0.28), i / steps),
+        pygame.draw.rect(disk, mix(mix(fill, PARCHMENT, 0.08), mix(fill, INK, 0.34), i / steps),
                          (0, y0, D * k, 2 * inner / steps + 2))
-    gcol = (*mix(fill, LINE, 0.55), 90)
+    gcol = (*mix(fill, LINE, 0.55), 85)
     step = max(10, int(Rk * 0.16))
     for x in range(int(c) % step, D * k, step):
         pygame.draw.line(disk, gcol, (x, 0), (x, D * k), max(1, k))
@@ -397,22 +340,19 @@ def draw_badge(surf: pygame.Surface, cx: float, cy: float, R: int, emblem_r: int
     pygame.draw.circle(m, (255, 255, 255, 255), (c, c), inner)
     _mask_to(disk, m)
     big.blit(disk, (0, 0))
-    # stitched dashed ring
+    # subtle sketchy cross-stitch ring
     sr = inner * 0.92
     n = max(24, int(R / 5))
     for i in range(n):
         a0 = 2 * math.pi * i / n
         a1 = a0 + math.pi / n * 0.95
-        pygame.draw.line(big, (*mix(fill, CREAM, 0.35), 170),
+        pygame.draw.line(big, (*mix(fill, CREAM, 0.28), 160),
                          (c + math.cos(a0) * sr, c + math.sin(a0) * sr),
                          (c + math.cos(a1) * sr, c + math.sin(a1) * sr), max(2, int(R * k / 90)))
-    # gold rim highlight arc (top-left)
-    pygame.draw.arc(big, mix(rim, CREAM, 0.55), pygame.Rect(c - Rk * 0.96, c - Rk * 0.96, Rk * 1.92, Rk * 1.92),
-                    math.radians(105), math.radians(165), max(2, int(Rk * 0.035)))
     img = pygame.transform.smoothscale(big, (D, D))
     surf.blit(img, img.get_rect(center=(round(cx), round(cy))))
-    er = emblem_r if emblem_r is not None else int(R * 0.6)
-    draw_cat_emblem(surf, cx, cy + er * 0.06, er)
+    er = emblem_r if emblem_r is not None else int(R * 0.68)
+    draw_cat_emblem(surf, cx, cy + er * 0.02, er)
 
 
 # --------------------------------------------------------------------------- app icon
@@ -421,40 +361,38 @@ def draw_badge(surf: pygame.Surface, cx: float, cy: float, R: int, emblem_r: int
 def _app_icon(size: int) -> pygame.Surface:
     k = 4 if size <= 256 else 2
     S = size * k
-    u = S / 256.0  # design units
+    u = S / 256.0
     big = pygame.Surface((S, S), pygame.SRCALPHA)
     m = round(8 * u)
     body = pygame.Rect(m, m, S - 2 * m - round(4 * u), S - 2 * m - round(4 * u))
     rad = round(54 * u)
-    pygame.draw.rect(big, (*INK, 130), body.move(round(5 * u), round(6 * u)), border_radius=rad)
+    pygame.draw.rect(big, (*INK, 145), body.move(round(5 * u), round(7 * u)), border_radius=rad)
     pygame.draw.rect(big, INK, body, border_radius=rad)
-    rim = body.inflate(-round(9 * u), -round(9 * u))
+    rim = body.inflate(-round(10 * u), -round(10 * u))
     pygame.draw.rect(big, ACCENT, rim, border_radius=rad - round(5 * u))
-    pygame.draw.rect(big, mix(ACCENT, CREAM, 0.45), rim, width=round(3 * u), border_radius=rad - round(5 * u))
     inner_ink = rim.inflate(-round(14 * u), -round(14 * u))
     pygame.draw.rect(big, INK, inner_ink, border_radius=rad - round(12 * u))
-    face = inner_ink.inflate(-round(6 * u), -round(6 * u))
+    face = inner_ink.inflate(-round(7 * u), -round(7 * u))
 
     layer = pygame.Surface((S, S), pygame.SRCALPHA)
     for y in range(face.top, face.bottom):
-        t = (y - face.top) / face.h
-        pygame.draw.line(layer, mix(mix(CARD_HI, CREAM, 0.08), mix(CARD, INK, 0.25), t), (face.left, y), (face.right, y))
-    gcol = (*mix(CARD_HI, LINE, 0.6), 80)
+        t = (y - face.top) / max(1, face.h)
+        pygame.draw.line(layer, mix(mix(CARD_HI, PARCHMENT, 0.06), mix(CARD, INK, 0.30), t), (face.left, y), (face.right, y))
+    gcol = (*mix(CARD_HI, LINE, 0.55), 85)
     step = round(22 * u)
     for x in range(face.left + step // 2, face.right, step):
         pygame.draw.line(layer, gcol, (x, face.top), (x, face.bottom), max(1, round(u)))
     for y in range(face.top + step // 2, face.bottom, step):
         pygame.draw.line(layer, gcol, (face.left, y), (face.right, y), max(1, round(u)))
-    g = pygame.transform.smoothscale(_radial(48, ACCENT, 110), (round(150 * u), round(150 * u)))
-    layer.blit(g, g.get_rect(center=(S // 2, round(134 * u))))
     mask = pygame.Surface((S, S), pygame.SRCALPHA)
     pygame.draw.rect(mask, (255, 255, 255, 255), face, border_radius=rad - round(14 * u))
     _mask_to(layer, mask)
     big.blit(layer, (0, 0))
-    # stitched dashes just inside the face edge
+
+    # stitched dashes inside cardboard face
     st = face.inflate(-round(14 * u), -round(14 * u))
     dash, gap, w = round(10 * u), round(7 * u), max(2, round(2.2 * u))
-    col = (*mix(CARD_HI, CREAM, 0.30), 150)
+    col = (*mix(CARD_HI, CREAM, 0.25), 145)
     for x0 in range(st.left + rad // 2, st.right - rad // 2, dash + gap):
         for yy in (st.top, st.bottom):
             pygame.draw.line(big, col, (x0, yy), (min(x0 + dash, st.right - rad // 2), yy), w)
@@ -463,8 +401,9 @@ def _app_icon(size: int) -> pygame.Surface:
             pygame.draw.line(big, col, (xx, y0), (xx, min(y0 + dash, st.bottom - rad // 2)), w)
 
     out = pygame.transform.smoothscale(big, (size, size))
-    cx = size * (124 / 256)
-    draw_cat_emblem(out, cx, size * (140 / 256), size * (78 / 256), detailed=size >= 96)
+    # Big unmistakable Mewgenics SVG cat face filling the icon cleanly
+    cat = get_emblem_surface(round(size * 0.78))
+    out.blit(cat, cat.get_rect(center=(round(size * 0.49), round(size * 0.51))))
     return out
 
 

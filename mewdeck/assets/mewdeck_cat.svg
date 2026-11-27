@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <filter id="inkShadow" x="-15%" y="-15%" width="135%" height="135%">
+      <feDropShadow dx="8" dy="12" stdDeviation="3" flood-color="#0E0C0A" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Main hand-inked Mewgenics scruffy bone-white alley cat head -->
+  <g filter="url(#inkShadow)" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Base head + ragged ears + scruffy cheek tufts (single organic silhouette) -->
+    <path
+      d="M 108 212
+         C 84 152, 78 90, 96 62
+         C 110 42, 146 72, 186 122
+         C 208 112, 224 108, 240 110
+         L 252 90 L 266 112 L 284 96 L 288 116
+         C 304 118, 318 122, 330 128
+         C 362 84, 396 54, 412 64
+         C 424 72, 424 98, 418 122
+         L 392 138 L 414 158
+         C 412 180, 408 202, 404 220
+         C 428 242, 444 276, 442 302
+         L 462 320 L 434 334
+         C 432 350, 424 366, 412 378
+         L 426 392 L 396 396
+         C 366 430, 314 452, 256 452
+         C 192 452, 140 428, 114 394
+         L 84 390 L 98 372
+         C 86 356, 78 338, 76 322
+         L 52 312 L 74 294
+         C 74 264, 88 234, 108 212 Z"
+      fill="#EFE6D4"
+      stroke="#141210"
+      stroke-width="17"
+    />
+
+    <!-- Subtle sketchy underside & cheek shading (muted parchment-tan, NOT glossy) -->
+    <path
+      d="M 118 378
+         C 154 418, 206 438, 260 438
+         C 320 438, 368 416, 402 378
+         C 418 358, 426 334, 428 310
+         C 412 350, 368 394, 262 398
+         C 178 400, 128 374, 96 334
+         C 100 352, 108 368, 118 378 Z"
+      fill="#D8CBB3"
+      stroke="none"
+    />
+
+    <!-- Asymmetric patch over left ear/temple (classic alley-cat scruff) -->
+    <path
+      d="M 104 196
+         C 92 148, 88 98, 102 76
+         C 116 66, 146 92, 178 134
+         C 150 152, 124 172, 104 196 Z"
+      fill="#C9BBA2"
+      stroke="none"
+    />
+
+    <!-- Inner ears: dusty sketchy mauve-tan with crisp ink creases -->
+    <path
+      d="M 116 178 C 106 138, 106 102, 114 92 C 126 98, 148 122, 164 148 C 146 156, 130 166, 116 178 Z"
+      fill="#CFA295"
+      stroke="#141210"
+      stroke-width="8"
+    />
+    <path
+      d="M 386 184 C 390 168, 392 158, 390 150 L 368 144 L 382 124 C 386 112, 390 102, 386 98 C 372 108, 356 128, 344 150 C 360 158, 374 170, 386 184 Z"
+      fill="#CFA295"
+      stroke="#141210"
+      stroke-width="8"
+    />
+
+    <!-- Sketchy forehead tabby / scruff ink marks -->
+    <path d="M 232 134 C 230 152, 232 168, 236 180" fill="none" stroke="#141210" stroke-width="10"/>
+    <path d="M 260 128 C 258 152, 260 174, 262 192" fill="none" stroke="#141210" stroke-width="11"/>
+    <path d="M 288 138 C 288 154, 286 168, 284 178" fill="none" stroke="#141210" stroke-width="10"/>
+
+    <!-- Subtle cheek scruff hatch lines -->
+    <path d="M 104 294 L 126 290" fill="none" stroke="#141210" stroke-width="7"/>
+    <path d="M 106 314 L 128 312" fill="none" stroke="#141210" stroke-width="7"/>
+    <path d="M 408 294 L 386 292" fill="none" stroke="#141210" stroke-width="7"/>
+    <path d="M 406 316 L 384 314" fill="none" stroke="#141210" stroke-width="7"/>
+
+    <!-- Left eye: big slightly crooked saucer eye (iconic McMillen thousand-yard stare) -->
+    <path
+      d="M 134 268
+         C 132 228, 162 204, 194 208
+         C 226 212, 240 242, 236 274
+         C 232 308, 204 324, 174 320
+         C 146 316, 136 294, 134 268 Z"
+      fill="#FFFDF6"
+      stroke="#141210"
+      stroke-width="13"
+    />
+    <!-- Tired/grumpy top eyelid crease on left eye -->
+    <path d="M 146 218 C 166 204, 198 204, 222 216" fill="none" stroke="#141210" stroke-width="7"/>
+    <!-- Under-eye bag crease -->
+    <path d="M 148 334 C 170 342, 198 340, 214 332" fill="none" stroke="#141210" stroke-width="6" opacity="0.65"/>
+    <!-- Pinprick slightly off-center pupil (left) -->
+    <ellipse cx="192" cy="264" rx="14" ry="15" fill="#141210"/>
+
+    <!-- Right eye: slightly larger / uneven round eye for classic unhinged Mewgenics charm -->
+    <path
+      d="M 284 266
+         C 282 224, 314 198, 348 204
+         C 380 210, 396 242, 392 276
+         C 388 312, 356 328, 326 322
+         C 296 316, 286 294, 284 266 Z"
+      fill="#FFFDF6"
+      stroke="#141210"
+      stroke-width="13"
+    />
+    <path d="M 294 216 C 322 200, 360 202, 384 222" fill="none" stroke="#141210" stroke-width="7"/>
+    <path d="M 304 334 C 328 344, 358 342, 376 330" fill="none" stroke="#141210" stroke-width="6" opacity="0.65"/>
+    <!-- Slightly smaller pupil on right eye (classic McMillen asymmetry!) -->
+    <ellipse cx="332" cy="262" rx="11" ry="12" fill="#141210"/>
+
+    <!-- Squashed nose sitting low between the eyes -->
+    <path
+      d="M 240 314
+         C 242 304, 276 304, 278 314
+         C 280 324, 266 338, 259 338
+         C 252 338, 238 324, 240 314 Z"
+      fill="#BA7F78"
+      stroke="#141210"
+      stroke-width="10"
+    />
+
+    <!-- Quirky lopsided deadpan/snaggletooth cat mouth -->
+    <path
+      d="M 259 338 L 259 354"
+      fill="none" stroke="#141210" stroke-width="10"
+    />
+    <path
+      d="M 206 364
+         C 220 384, 246 378, 259 354
+         C 272 378, 298 386, 316 362"
+      fill="none" stroke="#141210" stroke-width="11"
+    />
+    <!-- Tiny snaggletooth poking out on the right side! -->
+    <path
+      d="M 288 370 L 296 394 L 306 369 Z"
+      fill="#FFFDF6"
+      stroke="#141210"
+      stroke-width="7"
+    />
+
+    <!-- Scraggly uneven whiskers (3 left, 3 right) -->
+    <path d="M 118 330 C 78 320, 48 314, 22 308" fill="none" stroke="#141210" stroke-width="9"/>
+    <path d="M 114 352 C 74 354, 46 358, 18 364" fill="none" stroke="#141210" stroke-width="9"/>
+    <path d="M 124 374 C 86 386, 58 398, 34 414" fill="none" stroke="#141210" stroke-width="8"/>
+
+    <path d="M 394 330 C 434 318, 464 310, 490 302" fill="none" stroke="#141210" stroke-width="9"/>
+    <path d="M 398 352 C 438 354, 466 360, 494 368" fill="none" stroke="#141210" stroke-width="9"/>
+    <path d="M 388 374 C 424 386, 452 398, 476 416" fill="none" stroke="#141210" stroke-width="8"/>
+  </g>
+</svg>

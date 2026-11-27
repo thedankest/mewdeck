@@ -6,7 +6,7 @@
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
-[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.7)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
+[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.8)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
 [![Platform](https://img.shields.io/badge/Linux-Bazzite%20%7C%20SteamOS-70acff?style=for-the-badge&logo=linux&logoColor=14101a)](#one-click-install-on-bazzite--steamos)
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
@@ -18,6 +18,9 @@
 <img src="docs/screenshots/home.png" alt="MewDeck Home Screen" width="920" />
 
 </div>
+
+> [!NOTE]
+> **New in v1.8** — Hand-inked Mewgenics-style **SVG cat logo + `MEWDECK!` wordmark** (Chewy display font) across the app & all Steam Big Picture artwork · **Rooms tab** with a rule-based **House Manager** (Retirement / Nursery / Battle-Ready / Breeding / Sickbay rooms, Hater fight prevention, overcrowding warnings) and a per-room **Furniture Priority Guide** with best Storage picks · **Jester & special-cat parser fix** so no cat is ever silently dropped from your house or party.
 
 ---
 
@@ -40,8 +43,8 @@
       <sub><b>House Cats &amp; Graveyard</b> — Official in-game stat sticker trays, Sex/Sort filters, CoI% &amp; revive</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/breeding.png" alt="Cat Organizer & Breeding Helper" /><br />
-      <sub><b>Cat Organizer &amp; Breeding Helper</b> — Instant memoized Room Optimizer, Best Pairs &amp; Partners/Rooms</sub>
+      <img src="docs/screenshots/rooms.png" alt="Rooms: House Room Rules & Furniture Priority Guide" /><br />
+      <sub><b>Rooms (House Manager)</b> — Room Rules with Hater fight prevention, Furniture Priority Guide &amp; best Storage picks</sub>
     </td>
   </tr>
   <tr>
@@ -51,7 +54,7 @@
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/furniture.png" alt="Furniture & Live Room Totals" /><br />
-      <sub><b>Furniture (633 Sprites)</b> — Unplaced Storage, Room Stat Totals & Full Catalog</sub>
+      <sub><b>Furniture (633 Sprites)</b> — Unplaced Storage, room role &amp; priority-aware Room Totals, Full Catalog</sub>
     </td>
   </tr>
 </table>
@@ -95,10 +98,11 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Area | What MewDeck can do |
 | :--- | :--- |
-| **Clean Zero-Overlap Architecture** | Every game domain has one canonical home: **Home** (House tools & 7 pure resources, zero scroll), **Adventure** (`Run & Steven · Party · Backpack`), **Cats** (House & Graveyard), **Breeding** (`Room Optimizer · Best Pairs · Partners & Rooms`), **Items** (`Home Storage · Armor Sets · Catalog`), **Furniture**, and **System** (`Backups · Settings & Tools`). |
-| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic with distinct top-tab, segmented sub-view (`LT`/`RT`), and filter-pill hierarchy, custom notched-ear tabby emblem & Steam Big Picture artwork, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs**), and sub-3 ms/frame cached rendering. |
+| **Clean Zero-Overlap Architecture** | Every game domain has one canonical home: **Home** (House tools & 7 pure resources, zero scroll), **Adventure** (`Run & Steven · Party · Backpack`), **Cats** (House & Graveyard), **Rooms** (`Room Rules · Best Pairs · Partners & Rooms`), **Items** (`Home Storage · Armor Sets · Catalog`), **Furniture**, and **System** (`Backups · Settings & Tools`). |
+| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic with distinct top-tab, segmented sub-view (`LT`/`RT`), and filter-pill hierarchy, a hand-crafted **SVG tabby cat logo + `MEWDECK!` wordmark** (Chewy display font) shared by the app and all 5 Steam Big Picture assets, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs**), and sub-3 ms/frame cached rendering. |
 | **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer in **System**. |
-| **Cat Organizer & Breeding Helper** | Instant memoized **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**) and **Partners & Rooms**. |
+| **Rooms: House Manager & Breeding Helper** | Give each room a role (**Retirement, Nursery, Battle-Ready, Breeding, Sickbay, Everyone Else, Locked**) and MewDeck plans every cat move with **Hater fight prevention**, **overcrowding Comfort warnings** (-1 Comfort per cat over 4) and **1-press Apply**; rules persist between sessions. Each room shows a **Furniture Priority Guide** (what to stack, what to avoid) with the best matching pieces from Storage. Plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**) and **Partners & Rooms**. |
+| **Robust Save Parsing (Jester Fix)** | Variable-length cat records (Jester & other special cats with long class tags, extra abilities or equipment) are parsed exactly, with a pattern-scanning fallback so no cat in your house or adventure party is ever silently dropped. |
 | **Cat Editor, Interactive Cards & Gear Mini-Bar** | Zero-scroll `Build & Gear · Stats · Profile` sections (`LT`/`RT`) synced with hoverable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar**, **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses** (live Effective Stats tray), Mutations, and Class Collars. |
 | **Armor Sets Overview, Items, Furniture & System Tools** | Dedicated **Armor Sets** overview tracking live piece ownership across Home/Adventure/Cats with **1-press Add Missing Pieces**, bidirectional Home ↔ Adventure item transfer, **633 Furniture** items with live room totals, **Clone Save Slots**, and **System → Settings & Tools** (Integrity Check, Reload, Refresh Steam Artwork, UI Sounds, In-App Updater). |
 
@@ -108,7 +112,7 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Input | Action |
 | :--- | :--- |
-| **`LB` / `RB`** | Switch top-level tabs (*Home · Adventure · Cats · Breeding · Items · Furniture · System*) · Prev/next cat in Cat Editor |
+| **`LB` / `RB`** | Switch top-level tabs (*Home · Adventure · Cats · Rooms · Items · Furniture · System*) · Prev/next cat in Cat Editor |
 | **`LT` / `RT`** | Switch sub-views in **Adventure** (*Run & Steven · Party · Backpack*) & **Cat Editor** (*Build & Gear · Stats · Profile*) · Fast page scroll (±10 rows) in long lists |
 | **D-Pad / Left Stick** | Navigate · `◀ ▶` adjust values (hold to accelerate) or switch filters / Passive Tier 1–2 |
 | **`A`** | Select / open editor / add item / **move owned item Home ↔ Adventure** / confirm |
@@ -155,6 +159,6 @@ MEWDECK_TEST_SAVE=/path/to/steamcampaign01.sav python3 tests/test_savefile.py
 - **Proton save paths:** [Yggdraszil/mewgenics_patcher](https://github.com/Yggdraszil/mewgenics_patcher)
 - **Breeding simulation, pedigree CoI & room optimizer reference:** [PurpleMyst/mewgenics_breeding_helper](https://github.com/PurpleMyst/mewgenics_breeding_helper) (MIT) & [frankieg33/MewgenicsBreedingManager](https://github.com/frankieg33/MewgenicsBreedingManager)
 - **Wiki sprites & icons:** [mewgenics.wiki.gg](https://mewgenics.wiki.gg/) (packed offline via `scripts/`)
-- **Typography:** [Nunito](https://github.com/googlefonts/nunito) (SIL OFL 1.1)
+- **Typography:** [Nunito](https://github.com/googlefonts/nunito) (SIL OFL 1.1) · [Chewy](https://fonts.google.com/specimen/Chewy) by Sideshow (Apache 2.0)
 
 Licensed under **AGPL-3.0**. Personal, non-commercial tool.

@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 280" width="1100" height="280">
+  <defs>
+    <filter id="titleDrop" x="-10%" y="-15%" width="125%" height="145%">
+      <feDropShadow dx="7" dy="10" stdDeviation="2.5" flood-color="#0A0806" flood-opacity="0.78"/>
+    </filter>
+  </defs>
+
+  <!-- Chunky bouncy hand-brushed MEWDECK! wordmark inspired by MEWGENICS! -->
+  <g transform="translate(0, 18)" filter="url(#titleDrop)" stroke="#141210" stroke-width="24" stroke-linejoin="round" stroke-linecap="round" paint-order="stroke fill">
+
+    <!-- M (warm Mewgenics bone-cream, slight bouncy tilt) -->
+    <path fill="#F6EFE0"
+      d="M 32 222
+         C 24 172, 32 106, 48 62
+         C 54 44, 76 42, 84 60
+         C 92 80, 100 116, 106 138
+         C 118 110, 134 72, 148 52
+         C 160 36, 184 44, 184 68
+         C 184 120, 186 172, 190 216
+         C 192 234, 160 238, 154 218
+         C 150 190, 148 150, 148 120
+         C 136 148, 122 178, 110 192
+         C 98 204, 82 196, 76 178
+         C 72 162, 68 140, 64 122
+         C 60 154, 60 188, 62 218
+         C 62 236, 34 238, 32 222 Z"/>
+
+    <!-- E (tilted slightly counterclockwise like MEWGENICS!) -->
+    <g transform="rotate(-5 256 140)">
+      <path fill="#F6EFE0"
+        d="M 210 88
+           C 206 70, 222 58, 246 56
+           C 268 54, 290 56, 302 64
+           C 316 74, 310 96, 292 98
+           C 276 100, 258 98, 246 102
+           C 246 112, 246 120, 246 128
+           C 262 126, 280 124, 292 130
+           C 306 138, 302 158, 286 160
+           C 272 162, 258 160, 246 162
+           C 246 174, 248 184, 250 190
+           C 268 190, 288 186, 304 190
+           C 322 196, 320 222, 296 224
+           C 266 228, 226 228, 216 216
+           C 204 202, 210 136, 210 88 Z"/>
+    </g>
+
+    <!-- W (bouncy tall outer strokes) -->
+    <path fill="#F6EFE0"
+      d="M 332 76
+         C 328 54, 360 48, 366 72
+         C 372 108, 378 144, 384 170
+         C 392 146, 400 116, 408 98
+         C 416 80, 440 82, 444 102
+         C 450 126, 454 152, 458 170
+         C 466 142, 474 102, 480 66
+         C 484 44, 518 48, 514 74
+         C 504 130, 492 184, 480 218
+         C 472 236, 446 236, 438 216
+         C 432 198, 426 174, 422 156
+         C 414 178, 406 202, 398 218
+         C 388 236, 360 234, 354 214
+         C 344 174, 336 124, 332 76 Z"/>
+
+    <!-- D (warm Mewgenics gold, slightly bigger bouncy capital) -->
+    <g transform="rotate(-3 590 140)">
+      <path fill="#F4B648"
+        d="M 544 68
+           C 544 50, 568 48, 594 54
+           C 638 64, 662 100, 658 146
+           C 654 196, 622 226, 576 228
+           C 552 230, 538 222, 538 202
+           C 538 158, 542 110, 544 68 Z
+           M 576 92
+           C 574 124, 574 160, 576 190
+           C 602 190, 620 172, 622 142
+           C 624 110, 606 92, 576 92 Z"/>
+    </g>
+
+    <!-- E (gold, playful tilt) -->
+    <g transform="rotate(3 718 146)">
+      <path fill="#F4B648"
+        d="M 678 96
+           C 676 78, 692 66, 714 64
+           C 734 62, 754 66, 764 74
+           C 776 84, 770 104, 752 104
+           C 738 104, 722 104, 712 106
+           C 712 116, 712 124, 712 132
+           C 728 130, 742 130, 752 136
+           C 764 144, 760 164, 744 164
+           C 732 164, 722 164, 712 166
+           C 712 176, 714 186, 716 192
+           C 732 192, 750 190, 764 194
+           C 780 200, 776 224, 754 226
+           C 726 228, 694 228, 684 216
+           C 676 204, 678 144, 678 96 Z"/>
+    </g>
+
+    <!-- C (gold, chunky brush) -->
+    <g transform="rotate(-4 824 150)">
+      <path fill="#F4B648"
+        d="M 852 102
+           C 840 88, 820 88, 810 108
+           C 798 130, 798 166, 812 186
+           C 824 202, 844 200, 856 188
+           C 870 174, 888 194, 874 214
+           C 854 240, 808 240, 782 210
+           C 758 182, 760 116, 786 84
+           C 810 54, 856 54, 876 76
+           C 890 92, 866 116, 852 102 Z"/>
+    </g>
+
+    <!-- K (gold, chunky bouncy diagonals) -->
+    <path fill="#F4B648"
+      d="M 894 68
+         C 894 48, 926 46, 928 68
+         C 930 92, 930 114, 930 132
+         C 946 112, 964 88, 976 70
+         C 988 52, 1014 68, 1000 88
+         C 986 108, 970 128, 956 144
+         C 974 166, 992 188, 1006 206
+         C 1018 224, 990 242, 974 224
+         C 960 206, 944 184, 930 166
+         C 930 184, 930 202, 930 216
+         C 930 236, 896 238, 894 216
+         C 892 170, 894 114, 894 68 Z"/>
+
+    <!-- ! (thick tilted Mewgenics exclamation mark!) -->
+    <g transform="rotate(9 1044 140)">
+      <path fill="#F4B648"
+        d="M 1026 52
+           C 1024 34, 1068 32, 1066 56
+           C 1062 96, 1056 138, 1052 164
+           C 1050 178, 1032 178, 1030 164
+           C 1028 134, 1028 92, 1026 52 Z"/>
+      <ellipse cx="1040" cy="212" rx="18" ry="17" fill="#F4B648"/>
+    </g>
+
+    <!-- Iconic paw-print accent perched playfully above the E/C just like MEWGENICS! -->
+    <g transform="translate(766, 22) rotate(10)" stroke="#141210" stroke-width="11" paint-order="stroke fill">
+      <ellipse cx="0" cy="14" rx="18" ry="14" fill="#F6EFE0"/>
+      <ellipse cx="-22" cy="-2" rx="7.5" ry="9.5" fill="#F6EFE0"/>
+      <ellipse cx="-8" cy="-12" rx="8" ry="10" fill="#F6EFE0"/>
+      <ellipse cx="9" cy="-12" rx="8" ry="10" fill="#F6EFE0"/>
+      <ellipse cx="23" cy="-1" rx="7.5" ry="9.5" fill="#F6EFE0"/>
+    </g>
+  </g>
+</svg>
