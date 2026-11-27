@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.png" width="112" height="112" alt="MewDeck icon" />
-
-# MewDeck
+<img src="docs/logo.png" width="540" alt="MEWDECK! — Mewgenics Save Editor" />
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
@@ -11,7 +9,7 @@
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
 
-*Edit saves **in place** straight inside your Proton prefix — automatic backups before every write, strict round-trip verification, and full Steam library artwork.*
+*Edit saves **in place** straight inside your Proton prefix — automatic backups before every write, strict round-trip verification, and full Steam Big Picture artwork.*
 
 <br />
 
@@ -74,6 +72,12 @@
    - Creates a private Python (`pygame-ce`) environment
    - Adds **MewDeck** to Steam automatically with full library artwork *(portrait capsule, wide banner, hero, logo, and icon)*
 5. Switch back to **Game Mode** and launch **MewDeck** under **Non-Steam**.
+6. **Already installed?** Open MewDeck and go to **System → Settings & Tools → Check for Updates** (then **Refresh Steam Artwork** to immediately swap in the new Big Picture art).
+
+<p align="center">
+  <img src="docs/steam-banner.png" alt="MewDeck Steam Big Picture Library Artwork" width="760" /><br />
+  <sub><b>Automatic Steam Big Picture / Game Mode Artwork</b> — Portrait capsule, wide banner, hero, transparent logo &amp; icon</sub>
+</p>
 
 <details>
 <summary><b>Install or update via terminal / git instead</b></summary>
@@ -99,7 +103,7 @@ cd ~/mewdeck && ./uninstall.sh
 | Area | What MewDeck can do |
 | :--- | :--- |
 | **Clean Zero-Overlap Architecture** | Every game domain has one canonical home: **Home** (House tools & 7 pure resources, zero scroll), **Adventure** (`Run & Steven · Party · Backpack`), **Cats** (House & Graveyard), **Rooms** (`Room Rules · Best Pairs · Partners & Rooms`), **Items** (`Home Storage · Armor Sets · Catalog`), **Furniture**, and **System** (`Backups · Settings & Tools`). |
-| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic with distinct top-tab, segmented sub-view (`LT`/`RT`), and filter-pill hierarchy, a hand-crafted **SVG tabby cat logo + `MEWDECK!` wordmark** (Chewy display font) shared by the app and all 5 Steam Big Picture assets, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs**), and sub-3 ms/frame cached rendering. |
+| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic with distinct top-tab, segmented sub-view (`LT`/`RT`), and filter-pill hierarchy, a hand-crafted **Mewgenics-style SVG cat logo + `MEWDECK!` wordmark** (Chewy display font) shared by the app and all 5 Steam Big Picture assets, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs**), and sub-3 ms/frame cached rendering. |
 | **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer in **System**. |
 | **Rooms: House Manager & Breeding Helper** | Give each room a role (**Retirement, Nursery, Battle-Ready, Breeding, Sickbay, Everyone Else, Locked**) and MewDeck plans every cat move with **Hater fight prevention**, **overcrowding Comfort warnings** (-1 Comfort per cat over 4) and **1-press Apply**; rules persist between sessions. Each room shows a **Furniture Priority Guide** (what to stack, what to avoid) with the best matching pieces from Storage. Plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**) and **Partners & Rooms**. |
 | **Robust Save Parsing (Jester Fix)** | Variable-length cat records (Jester & other special cats with long class tags, extra abilities or equipment) are parsed exactly, with a pattern-scanning fallback so no cat in your house or adventure party is ever silently dropped. |
@@ -118,7 +122,7 @@ cd ~/mewdeck && ./uninstall.sh
 | **`A`** | Select / open editor / add item / **move owned item Home ↔ Adventure** / confirm |
 | **`B`** | Back / cancel |
 | **`X`** | Context action: max resource, heal/revive cat, remove item/furniture, clear slot, manual backup |
-| **`Y`** | Switch **Home Storage / Adventure Backpack / Trash** (Items) · Mirror L↔R (Mutations) · Clear all disorders · Reload |
+| **`Y`** | Sort (**Cats** / **Items**) · Stat Goal (**Rooms**) · Inspect Cards (**Cat Editor**) · Mirror L↔R (**Mutations**) · Clear all disorders · Rescan saves |
 | **View / `Select` (or `/`)** | Open built-in **Gamepad + Touch Search** · Clear all birth defects (Mutations) |
 | **`☰` Menu** | Save all pending changes (with automatic backup) |
 
