@@ -6,7 +6,7 @@
 
 **Native 1080p, gamepad-first Mewgenics save editor for ROG Ally, Steam Deck & Linux (Bazzite / SteamOS)**
 
-[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.6)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
+[![Download Installer](https://img.shields.io/badge/Download-One--Click%20Installer%20(v1.7)-ffb44c?style=for-the-badge&logo=steam&logoColor=14101a)](https://github.com/thedankest/mewdeck/releases/latest)
 [![Platform](https://img.shields.io/badge/Linux-Bazzite%20%7C%20SteamOS-70acff?style=for-the-badge&logo=linux&logoColor=14101a)](#one-click-install-on-bazzite--steamos)
 [![Resolution](https://img.shields.io/badge/UI-Native%201080p%20%C2%B7%20Gamepad%20%2B%20Touch-68d894?style=for-the-badge)](#controls)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-826c9e?style=for-the-badge)](LICENSE)
@@ -26,22 +26,22 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/adventure.png" alt="Adventure Hub & Steven Watch" /><br />
-      <sub><b>Adventure Hub</b> — Steven Save-Scum Watch, Auto-block, Party Fixes & Live 4-Cat Party</sub>
+      <img src="docs/screenshots/adventure.png" alt="Adventure Party & Live Dossier" /><br />
+      <sub><b>Adventure Hub (Run &amp; Steven · Party · Backpack)</b> — Dedicated active-run tab with 4-cat dossier &amp; backpack</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/cat-edit.png" alt="Cat Editor with Interactive Cards & Equipped Gear" /><br />
-      <sub><b>Cat Editor</b> — Hoverable Ability/Disorder Cards, 5-Slot Equipped Gear Bar & Official Stat SVGs</sub>
+      <img src="docs/screenshots/cat-edit.png" alt="Cat Editor with 3 Zero-Scroll Sections & Live Loadout" /><br />
+      <sub><b>Cat Editor</b> — Zero-scroll <code>Build &amp; Gear · Stats · Profile</code> sections, hoverable cards &amp; gear bar</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/cats.png" alt="Home & Adventure Cats with In-Game Stat Icons" /><br />
-      <sub><b>Home & Adventure Cats</b> — Official in-game stat sticker trays, Sex/Sort filters, CoI% & Graveyard revive</sub>
+      <img src="docs/screenshots/cats.png" alt="House Cats & Graveyard with In-Game Stat Icons" /><br />
+      <sub><b>House Cats &amp; Graveyard</b> — Official in-game stat sticker trays, Sex/Sort filters, CoI% &amp; revive</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/breeding.png" alt="Cat Organizer & Breeding Helper" /><br />
-      <sub><b>Cat Organizer & Breeding Helper</b> — Instant memoized Room Optimizer, ENS pairs, CoI% & 1-press apply</sub>
+      <sub><b>Cat Organizer &amp; Breeding Helper</b> — Instant memoized Room Optimizer, Best Pairs &amp; Partners/Rooms</sub>
     </td>
   </tr>
   <tr>
@@ -95,12 +95,12 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Area | What MewDeck can do |
 | :--- | :--- |
-| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic, custom notched-ear tabby emblem & full Steam Big Picture artwork, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs** everywhere), and LRU-cached sub-3 ms/frame rendering for instant handheld feel. |
-| **Separate Home & Adventure Tabs** | Cleanly separated **Home** (House Gold/Food, Collars, Storage, Heal All, Repair Gear, Strip Defects, Unlocks, Properties, Refresh Steam Artwork) and **Adventure** (Steven Save-Scum Watch, Auto-block, Party Fixes, Adv Coins/Food/Boxes, Live 4-Cat Party roster & Backpack jump) tabs. |
-| **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer. |
-| **Cat Organizer & Breeding Helper** | Instant memoized **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**), **Partner Finder**, and **Room Organizer**. |
-| **Cat Editor, Interactive Cards & Gear Mini-Bar** | Hoverable / gamepad-inspectable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar** with live tooltip previews (click/`A` to edit that exact slot), **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses** (with live Effective Stats tray), Mutations, and Class Collars. |
-| **Armor Sets Overview, Items, Furniture & Self-Updater** | Dedicated **Armor Sets** overview tracking live piece ownership across Home/Adventure/Cats with **1-press Add Missing Pieces**, Home ↔ Adventure item transfer with icon stat deltas, **633 Furniture** items with live room totals, **Clone Save Slots**, and **in-app updates** right inside Game Mode. |
+| **Clean Zero-Overlap Architecture** | Every game domain has one canonical home: **Home** (House tools & 7 pure resources, zero scroll), **Adventure** (`Run & Steven · Party · Backpack`), **Cats** (House & Graveyard), **Breeding** (`Room Optimizer · Best Pairs · Partners & Rooms`), **Items** (`Home Storage · Armor Sets · Catalog`), **Furniture**, and **System** (`Backups · Settings & Tools`). |
+| **In-Game Sketchbook UI, Branding & 3,694 Wiki Sprites** | Hand-inked Mewgenics sketchbook aesthetic with distinct top-tab, segmented sub-view (`LT`/`RT`), and filter-pill hierarchy, custom notched-ear tabby emblem & Steam Big Picture artwork, **3,694 offline wiki sprites** (including white-backed official **Stat Sticker SVGs**), and sub-3 ms/frame cached rendering. |
+| **Explicit Save-Only Workflow & Header Controls** | Every edit queues cleanly with a `QUEUED` badge — **nothing writes to disk until you click `Save (N)`** in the header (or press `☰` Menu), with clickable **`« Back`**, **`Discard`**, automatic pristine + rolling backups, and a live **Backup Diff** viewer in **System**. |
+| **Cat Organizer & Breeding Helper** | Instant memoized **Room Optimizer** with live **Optimization Plan Summary** (Before » After ENS gain & room moves) and **1-press Apply**, plus **Best Pairs** with **Offspring Simulator** (expected stats, 7s, Spell/Passive %, exact pedigree **CoI%**) and **Partners & Rooms**. |
+| **Cat Editor, Interactive Cards & Gear Mini-Bar** | Zero-scroll `Build & Gear · Stats · Profile` sections (`LT`/`RT`) synced with hoverable **Ability, Passive & Disorder Cards** + **5-Slot Equipped Gear Mini-Bar**, **Build Presets & Clone/Paste**, **Equip Full Armor Set**, **Rename**, Base + **Level-Up Bonuses** (live Effective Stats tray), Mutations, and Class Collars. |
+| **Armor Sets Overview, Items, Furniture & System Tools** | Dedicated **Armor Sets** overview tracking live piece ownership across Home/Adventure/Cats with **1-press Add Missing Pieces**, bidirectional Home ↔ Adventure item transfer, **633 Furniture** items with live room totals, **Clone Save Slots**, and **System → Settings & Tools** (Integrity Check, Reload, Refresh Steam Artwork, UI Sounds, In-App Updater). |
 
 ---
 
@@ -108,8 +108,8 @@ cd ~/mewdeck && ./uninstall.sh
 
 | Input | Action |
 | :--- | :--- |
-| **`LB` / `RB`** | Switch tabs (*Home · Adventure · Cats · Breeding · Items · Furniture · Backups*) · Prev/next cat in Cat Editor |
-| **`LT` / `RT`** | Fast page scroll (±10 rows) in long lists *(also `PageUp` / `PageDown` / `[` / `]`)* |
+| **`LB` / `RB`** | Switch top-level tabs (*Home · Adventure · Cats · Breeding · Items · Furniture · System*) · Prev/next cat in Cat Editor |
+| **`LT` / `RT`** | Switch sub-views in **Adventure** (*Run & Steven · Party · Backpack*) & **Cat Editor** (*Build & Gear · Stats · Profile*) · Fast page scroll (±10 rows) in long lists |
 | **D-Pad / Left Stick** | Navigate · `◀ ▶` adjust values (hold to accelerate) or switch filters / Passive Tier 1–2 |
 | **`A`** | Select / open editor / add item / **move owned item Home ↔ Adventure** / confirm |
 | **`B`** | Back / cancel |

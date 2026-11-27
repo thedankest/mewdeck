@@ -1535,9 +1535,13 @@ class FurnitureTab:
 
     def on_enter(self) -> None:
         rooms = self.app.snap.parsed.get("rooms") or []
-        self.modes = [("unplaced", "Storage")]
+        furn = self.app.snap.parsed["furniture"]
+        rems = set(self.app.pending.furn_remove)
+        unpl_n = sum(1 for f in furn["unplaced"] if f["key"] not in rems) + len(self.app.pending.furn_add)
+        self.modes = [("unplaced", f"Storage {unpl_n}")]
         for rm in rooms:
-            self.modes.append((f"room:{rm}", rm.replace("_", " ")))
+            rn = sum(1 for f in furn["placed"] if f["room"] == rm and f["key"] not in rems)
+            self.modes.append((f"room:{rm}", f"{rm.replace('_', ' ')} {rn}"))
         self.modes.append(("add:all", "Add: All"))
         for ef in self.EFFECT_FILTERS:
             self.modes.append((f"add:{ef}", f"+{ef}"))
@@ -1616,19 +1620,21 @@ class FurnitureTab:
             kind, obj, info = self.list.current.data
             if kind == "catalog":
                 self.app.pending.furn_add.append(info["id"])
+                self.on_enter()
                 self.app.toast(f"Queued {info['name']} to Storage", ui.GOOD, 2.0)
         elif btn == ui.X and self.list.current:
             kind, obj, info = self.list.current.data
             if kind == "owned":
                 self.app.pending.furn_remove.append(obj["key"])
-                self._rebuild()
+                self.on_enter()
                 self.app.toast(f"Marked {info['name']} for removal", ui.ACCENT, 2.0)
             elif kind == "queued":
                 if obj in self.app.pending.furn_add:
                     self.app.pending.furn_add.remove(obj)
-                self._rebuild()
+                self.on_enter()
             elif kind == "catalog" and info["id"] in self.app.pending.furn_add:
                 self.app.pending.furn_add.remove(info["id"])
+                self.on_enter()
         else:
             return False
         return True
@@ -1636,6 +1642,16 @@ class FurnitureTab:
     def click(self, pos) -> None:
         if self.search_rect and self.search_rect.collidepoint(pos):
             self._open_search()
+            return
+        if getattr(self, "chip_prev_rect", None) and self.chip_prev_rect.collidepoint(pos):
+            self.m = (self.m - 1) % len(self.modes)
+            self.list.sel = 0
+            self._rebuild()
+            return
+        if getattr(self, "chip_next_rect", None) and self.chip_next_rect.collidepoint(pos):
+            self.m = (self.m + 1) % len(self.modes)
+            self.list.sel = 0
+            self._rebuild()
             return
         for r, i in self.chip_rects:
             if r.collidepoint(pos):
@@ -1674,27 +1690,41 @@ class FurnitureTab:
         self.search_rect = draw_search_pill(ui, surf, area.right - 580, area.y + 18, self.query, anchor="midright")
         chips_right = self.search_rect.left - 14
         self.chip_rects = []
+        self.chip_prev_rect = None
+        self.chip_next_rect = None
         widths = [ui.F(22, "bold").size(lbl)[0] + 32 for _, lbl in self.modes]
         start = 0
-        while sum(widths[start:self.m + 1]) > (chips_right - area.x - 26) and start < self.m:
+        while sum(widths[start:self.m + 1]) > (chips_right - area.x - 56) and start < self.m:
             start += 1
         x = area.x
         if start:
-            ui.tri(surf, ui.DIM, (x + 8, area.y + 18), 9, "left")
-            x += 26
+            pr = pygame.Rect(x, area.y + 4, 26, 28)
+            self.chip_prev_rect = pr
+            ui.tri(surf, ui.ACCENT, pr.center, 8, "left")
+            x += 30
+        last_drawn = start - 1
         for i in range(start, len(self.modes)):
             sel = i == self.m
             w_est = ui.F(22, "bold").size(self.modes[i][1])[0] + 22
-            if x + w_est > chips_right:
+            if x + w_est > chips_right - 28:
                 break
             r = ui.pill(surf, self.modes[i][1], x, area.y, ui.ACCENT if sel else ui.CARD,
                         ui.DARK if sel else ui.DIM, 22)
             self.chip_rects.append((r, i))
             x = r.right + 10
+            last_drawn = i
+        if last_drawn < len(self.modes) - 1:
+            nr = pygame.Rect(chips_right - 24, area.y + 4, 26, 28)
+            self.chip_next_rect = nr
+            ui.tri(surf, ui.ACCENT, nr.center, 8, "right")
 
         la = pygame.Rect(area.x, area.y + 60, area.w - 580, area.h - 60)
         if not self.list.rows:
-            ui.text(surf, "No furniture here", (la.centerx, la.y + 100), 32, ui.FAINT, "bold", anchor="midtop")
+            if self.query:
+                ui.empty_state(surf, la, "Shield", f'No furniture matching "{self.query}"', "Press B to clear the search.")
+            else:
+                ui.empty_state(surf, la, "Shield", "No furniture here",
+                               "Use the D-pad to switch rooms or pick Add: All to add furniture to Storage.")
         else:
             self.list.draw(surf, la, self._render_row)
 
